@@ -24,11 +24,11 @@ app.add_middleware(
 )
 
 # Deepgram credentials
-DG_API_KEY = "8d57f094bf8e94df278e67b5efd374461c32d84d"
+DG_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 
 # Initialize Supabase client
-SUPABASE_URL = "https://yptzwnbgbimbwczsnaxj.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwdHp3bmJnYmltYndjenNuYXhqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NjUwMTM5NCwiZXhwIjoyMDkyMDc3Mzk0fQ.AlwiyRK_HTmizHATCkWpt4fteHXAHnr6nydywhPA1CI"
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -77,6 +77,30 @@ async def upload_video(file: UploadFile = File(...)):
         traceback.print_exc()
         print(f"DEBUG: Deepgram error: {type(e).__name__} - {str(e)}")
         raise HTTPException(status_code=500, detail=f"Deepgram request failed: {type(e).__name__} - {str(e)}")
+    # --- PHASE 2 PIPELINE ---
+    # Analyze silent gaps
+    gap_count = 0
+    try:
+        from analyzer import count_silent_gaps, count_filler_words
+        gap_count = count_silent_gaps(audio_path)
+    except Exception as e:
+        print(f"DEBUG: Analyzer gap error: {e}")
+        
+    # Analyze filler words
+    filler_word_count = 0
+    try:
+        filler_word_count = count_filler_words(response_dict)
+    except Exception as e:
+        print(f"DEBUG: Analyzer filler error: {e}")
+        
+    # Evaluate with LLM
+    llm_feedback = {}
+    try:
+        from evaluator import evaluate_transcript
+        llm_feedback = evaluate_transcript(response_dict)
+    except Exception as e:
+        print(f"DEBUG: Evaluator error: {e}")
+
     finally:
         # Clean up audio file
         try:
@@ -91,10 +115,21 @@ async def upload_video(file: UploadFile = File(...)):
         supabase.table("analysis_results").insert({
             "video_name": video_name,
             "transcript_json": transcript_json,
+            "gap_count": gap_count,
+            "filler_word_count": filler_word_count,
+            "llm_feedback_json": llm_feedback,
             "created_at": datetime.utcnow().isoformat(),
         }).execute()
     except Exception as e:
         print(f"DEBUG: Supabase error: {e}")
         raise HTTPException(status_code=500, detail=f"Supabase insert failed: {e}")
 
-    return JSONResponse(content={"status": "success", "transcript": transcript_json})
+    return JSONResponse(content={
+        "status": "success", 
+        "transcript": transcript_json,
+        "analysis": {
+            "gaps": gap_count,
+            "fillers": filler_word_count,
+            "feedback": llm_feedback
+        }
+    })

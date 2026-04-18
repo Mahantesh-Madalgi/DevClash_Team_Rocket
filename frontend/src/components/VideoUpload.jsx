@@ -1,9 +1,9 @@
 import React, { useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-// Hardcoded Supabase credentials per request (Using Service Role key to bypass RLS)
-const supabaseUrl = "https://yptzwnbgbimbwczsnaxj.supabase.co";
-const supabaseServiceKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwdHp3bmJnYmltYndjenNuYXhqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NjUwMTM5NCwiZXhwIjoyMDkyMDc3Mzk0fQ.AlwiyRK_HTmizHATCkWpt4fteHXAHnr6nydywhPA1CI";
+// Supabase credentials (using environment variables)
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseServiceKey = import.meta.env.VITE_SUPABASE_SERVICE_KEY;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 export default function VideoUpload() {

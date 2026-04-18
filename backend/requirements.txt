@@ -4,3 +4,7 @@ moviepy
 deepgram-sdk
 supabase
 python-dotenv
+librosa
+soundfile
+groq
+httpx
