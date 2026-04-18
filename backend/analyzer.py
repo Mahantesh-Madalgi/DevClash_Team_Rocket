@@ -118,3 +118,29 @@ def analyze_energy_timeline(audio_path: str) -> list:
     except Exception as e:
         print(f"DEBUG: Error building energy timeline: {e}")
         return []
+
+def extract_confidence_events(energy_timeline: list) -> list:
+    """
+    Scans the normalized timeline. Scores > 0.8 denote a high-confidence peak.
+    Returns a list of structured positive events.
+    """
+    events = []
+    for point in energy_timeline:
+        if point.get("score", 0) > 0.8:
+            events.append({
+                "timestamp": point["time"],
+                "type": "positive",
+                "category": "confidence",
+                "description": "High vocal confidence and strong acoustic projection.",
+                "correction": None
+            })
+            
+    # Filter overlapping consecutive event triggers to ensure UI readability
+    filtered = []
+    last_time = -10.0
+    for e in events:
+        if e["timestamp"] - last_time >= 4.0: # 4 seconds spacing
+            filtered.append(e)
+            last_time = e["timestamp"]
+            
+    return filtered

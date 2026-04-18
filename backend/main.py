@@ -1,5 +1,5 @@
 from datetime import datetime
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import JSONResponse
 from moviepy import VideoFileClip
 import httpx
@@ -33,7 +33,11 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 @app.post("/upload")
-async def upload_video(file: UploadFile = File(...)):
+async def upload_video(
+    file: UploadFile = File(...),
+    job_description: str = Form(None)
+):
+    interview_id = str(uuid.uuid4())
     # Save uploaded video to a temporary location
     temp_video_path = f"/tmp/{uuid.uuid4()}_{file.filename}"
     with open(temp_video_path, "wb") as buffer:
@@ -94,19 +98,65 @@ async def upload_video(file: UploadFile = File(...)):
     except Exception as e:
         print(f"DEBUG: Analyzer filler error: {e}")
         
-    # Evaluate with LLM
+    # Build Transcripts
+    channels = response_dict.get("results", {}).get("channels", [])
+    transcript_text = channels[0].get("alternatives", [{}])[0].get("transcript", "") if channels else ""
+    
+    words = channels[0].get("alternatives", [{}])[0].get("words", []) if channels else []
+    timed_transcript = ""
+    current_chunk = []
+    chunk_start = 0.0
+    for w in words:
+        if not current_chunk:
+            chunk_start = w.get("start", 0.0)
+        current_chunk.append(w.get("word", ""))
+        if w.get("end", 0.0) - chunk_start >= 4.0:
+            timed_transcript += f"[{round(chunk_start, 1)}s] {' '.join(current_chunk)}\n"
+            current_chunk = []
+    if current_chunk:
+        timed_transcript += f"[{round(chunk_start, 1)}s] {' '.join(current_chunk)}\n"
+
+    # Evaluate with Dual-LLMs
     llm_feedback = {}
+    language_events = []
+    comparison_report = {}
+    technical_events = []
     try:
         from evaluator import evaluate_transcript
-        llm_feedback = evaluate_transcript(response_dict)
+        from brain import groq_scan_language, gemini_comparison_report
+        
+        # Basic Ratings
+        llm_response = evaluate_transcript(response_dict)
+        llm_feedback = {
+            "ratings": llm_response.get("ratings", {}),
+            "strengths": llm_response.get("strengths", []),
+            "improvement_plan": llm_response.get("improvement_plan", "Failed fallback.")
+        }
+        
+        # Groq Fast Language Anomaly Scanning
+        lang_evts = groq_scan_language(timed_transcript, job_description)
+        for evt in lang_evts:
+            evt["type"] = "negative"
+            evt["category"] = "language"
+        language_events = lang_evts
+        
+        # Gemini Deep JD Comparison
+        comparison_report = gemini_comparison_report(transcript_text, job_description)
+        tech_evts = comparison_report.get("technical_events", [])
+        technical_events = tech_evts
+        
     except Exception as e:
-        print(f"DEBUG: Evaluator error: {e}")
+        import traceback
+        traceback.print_exc()
+        print(f"DEBUG: Dual-LLM Orchestration error: {e}")
         
     # Analyze Time-Series Energy
     energy_timeline = []
+    confidence_events = []
     try:
-        from analyzer import analyze_energy_timeline
+        from analyzer import analyze_energy_timeline, extract_confidence_events
         energy_timeline = analyze_energy_timeline(audio_path)
+        confidence_events = extract_confidence_events(energy_timeline)
     except Exception as e:
         print(f"DEBUG: Timeline error: {e}")
 
@@ -122,6 +172,7 @@ async def upload_video(file: UploadFile = File(...)):
     video_name = file.filename
     try:
         supabase.table("analysis_results").insert({
+            "id": interview_id,
             "video_name": video_name,
             "transcript_json": transcript_json,
             "gap_count": gap_count,
@@ -130,6 +181,22 @@ async def upload_video(file: UploadFile = File(...)):
             "energy_timeline": energy_timeline,
             "created_at": datetime.utcnow().isoformat(),
         }).execute()
+        
+        # Merge Events & Store Foreign Keys
+        unified_events = confidence_events + language_events + technical_events
+        if unified_events:
+            push_events = []
+            for ev in unified_events:
+                push_events.append({
+                    "interview_id": interview_id,
+                    "timestamp": ev.get("timestamp", 0.0),
+                    "type": ev.get("type", "negative"),
+                    "category": ev.get("category", "language"),
+                    "description": ev.get("description", ""),
+                    "correction": ev.get("correction", None)
+                })
+            supabase.table("analysis_events").insert(push_events).execute()
+            
     except Exception as e:
         print(f"DEBUG: Supabase error: {e}")
         raise HTTPException(status_code=500, detail=f"Supabase insert failed: {e}")
@@ -141,6 +208,7 @@ async def upload_video(file: UploadFile = File(...)):
             "gaps": gap_count,
             "fillers": filler_word_count,
             "feedback": llm_feedback,
-            "timeline": energy_timeline
+            "timeline": energy_timeline,
+            "events": unified_events
         }
     })

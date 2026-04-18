@@ -1,0 +1,2097 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hirelytics AI Dashboard</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f4faff',
+                            100: '#e0f2fe',
+                            200: '#bae6fd',
+                            300: '#7dd3fc',
+                            400: '#38bdf8',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            700: '#0369a1',
+                            800: '#075985',
+                            900: '#0c4a6e',
+                        },
+                        accent: {
+                            purple: '#8b5cf6',
+                            teal: '#14b8a6'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/react-is@18/umd/react-is.production.min.js"></script>
+    <script src="https://unpkg.com/prop-types/prop-types.min.js"></script>
+
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Recharts -->
+    <script src="https://unpkg.com/recharts/umd/Recharts.js"></script>
+
+    <!-- Framer Motion -->
+    <script src="https://unpkg.com/framer-motion/dist/framer-motion.js"></script>
+
+    <!-- Lucide Icons (Vanilla script fallback to build custom React icon components easily below) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body class="antialiased min-h-screen text-slate-800">
+    <div id="error-log"
+        style="color: red; padding: 20px; font-family: monospace; white-space: pre-wrap; z-index: 9999; position: relative;">
+    </div>
+    <script>
+        window.onerror = function (message, source, lineno, colno, error) {
+            document.getElementById('error-log').innerText += 'Error: ' + message + '\nAt: ' + source + ':' + lineno + '\n\n';
+            if (error && error.stack) {
+                document.getElementById('error-log').innerText += error.stack + '\n\n';
+            }
+        };
+        window.addEventListener('unhandledrejection', function (event) {
+            document.getElementById('error-log').innerText += 'Unhandled Promise Rejection: ' + event.reason + '\n\n';
+        });
+    </script>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+        const { createRoot } = ReactDOM;
+        const { motion, AnimatePresence } = window.Motion;
+        const {
+            PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
+            BarChart, Bar, XAxis, YAxis, CartesianGrid,
+            AreaChart, Area, LineChart, Line, Legend, ReferenceArea
+        } = window.Recharts;
+
+        // Custom Icon wrapper to use Lucide easily without the standard React package
+        const Icon = ({ name, size = 24, className = '', color = 'currentColor' }) => {
+            const iconRef = useRef(null);
+            useEffect(() => {
+                if (iconRef.current && window.lucide) {
+                    window.lucide.createIcons({
+                        icons: { [name]: window.lucide.icons[name] },
+                        nameAttr: 'data-lucide',
+                        attrs: { class: className, width: size, height: size, stroke: color, 'stroke-width': 2 }
+                    });
+                }
+            }, [name, size, className, color]);
+            return <i ref={iconRef} data-lucide={name}></i>;
+        };
+
+        // --- COMPONENTS ---
+
+        // 1. Sidebar Component
+        const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
+            const tabs = [
+                { id: 'dashboard', label: 'Dashboard', icon: 'layout-dashboard' },
+                { id: 'progress', label: 'Progress', icon: 'trending-up' },
+                { id: 'history', label: 'History', icon: 'history' },
+                { id: 'levelup', label: 'Level Up', icon: 'zap' }
+            ];
+
+            const bottomTabs = [
+                { id: 'profile', label: 'Profile', icon: 'user' },
+                { id: 'logout', label: 'Log Out', icon: 'log-out' }
+            ];
+
+            return (
+                <div className="w-64 h-screen fixed left-0 top-0 glass-card !rounded-none !border-l-0 !border-t-0 !border-b-0 border-r flex flex-col pt-8 pb-4 z-50">
+                    <div className="px-8 mb-12">
+                        <div className="flex items-center gap-3 mb-1">
+                            <img src="logo.png" alt="Hirelytics Logo" className="w-8 h-8 object-contain drop-shadow-md" />
+                            <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-brand-700 to-accent-purple truncate">Hirelytics</h1>
+                        </div>
+                        <p className="text-xs text-brand-600 font-medium tracking-wider uppercase">Menu</p>
+                    </div>
+
+                    <nav className="flex-1 px-4 space-y-2">
+                        {tabs.map((tab) => (
+                            <motion.button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id)}
+                                whileHover={{ x: 5 }}
+                                whileTap={{ scale: 0.95 }}
+                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors relative text-left ${activeTab === tab.id ? 'text-brand-700 font-semibold' : 'text-slate-500 hover:text-brand-600 hover:bg-brand-50/50'
+                                    }`}
+                            >
+                                {activeTab === tab.id && (
+                                    <motion.div
+                                        layoutId="activeSlide"
+                                        className="absolute inset-0 bg-brand-100/50 rounded-xl border border-brand-200 shadow-[0_0_15px_rgba(14,165,233,0.15)]"
+                                        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                                    />
+                                )}
+                                <span className="relative z-10 flex items-center gap-3">
+                                    <Icon name={tab.icon} size={20} />
+                                    {tab.label}
+                                </span>
+                            </motion.button>
+                        ))}
+                    </nav>
+
+                    <div className="px-4 mt-auto space-y-2">
+                        <p className="px-4 text-xs text-brand-600 font-medium tracking-wider uppercase mb-2">System</p>
+                        {bottomTabs.map((tab) => (
+                            <motion.button
+                                key={tab.id}
+                                onClick={() => tab.id === 'logout' ? onLogout() : setActiveTab(tab.id)}
+                                whileHover={{ x: 5, backgroundColor: tab.id === 'logout' ? 'rgba(239,68,68,0.05)' : 'rgba(14,165,233,0.05)' }}
+                                whileTap={{ scale: 0.95 }}
+                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-left ${activeTab === tab.id && tab.id !== 'logout' ? 'text-brand-700 font-semibold' : ''} ${tab.id === 'logout' ? 'text-red-500 hover:text-red-600' : 'text-slate-500 hover:text-brand-600'}`}
+                            >
+                                <Icon name={tab.icon} size={20} />
+                                <span className="font-medium">{tab.label}</span>
+                            </motion.button>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        // 2. Top Header Component
+        const TopHeader = ({ onUploadClick }) => {
+            return (
+                <div className="flex justify-between items-center mb-8">
+                    <div>
+                        <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Interview Overview</h2>
+                        <p className="text-slate-500 mt-1">Review your latest performance metrics.</p>
+                    </div>
+                    <div className="flex gap-4">
+                        <motion.button
+                            whileHover={{ scale: 1.05, y: -2 }}
+                            whileTap={{ scale: 0.95 }}
+                            className="glass-card flex items-center gap-2 px-6 py-3 font-semibold text-brand-700 hover:text-brand-800 transition-colors shadow-sm"
+                        >
+                            <Icon name="play-circle" size={20} />
+                            Start Interview
+                        </motion.button>
+
+                        <motion.button
+                            onClick={onUploadClick}
+                            whileHover={{ scale: 1.05, y: -2 }}
+                            whileTap={{ scale: 0.95 }}
+                            className="bg-gradient-to-r from-brand-500 to-accent-teal text-white flex items-center gap-2 px-6 py-3 rounded-xl font-semibold shadow-[0_10px_20px_rgba(20,184,166,0.3)] hover:shadow-[0_15px_30px_rgba(20,184,166,0.4)] transition-all"
+                        >
+                            <motion.div animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 2 }}>
+                                <Icon name="cloud-upload" size={20} />
+                            </motion.div>
+                            Upload Interview
+                        </motion.button>
+                    </div>
+                </div>
+            );
+        };
+
+        // 3. Card Wrapper Component
+        const Card = ({ title, icon, children, className = "" }) => (
+            <motion.div
+                whileHover={{ y: -4, transition: { duration: 0.2 } }}
+                className={`glass-card p-6 flex flex-col overflow-hidden ${className}`}
+            >
+                <div className="flex items-center gap-3 mb-4">
+                    {icon && <div className="p-2 bg-brand-100 rounded-lg text-brand-600"><Icon name={icon} size={18} /></div>}
+                    <h3 className="font-semibold text-slate-800 text-lg tracking-tight">{title}</h3>
+                </div>
+                <div className="flex-1 relative">
+                    {children}
+                </div>
+            </motion.div>
+        );
+
+        // -- SPECIFIC CHART / CONTENT COMPONENTS --
+
+        const TimestampIssues = ({ onSelectIssue, selectedIssue }) => {
+            const issues = [
+                { id: 1, time: '0:32', label: 'Fumbled', type: 'warning' },
+                { id: 2, time: '0:40', label: 'Technically wrong understanding', type: 'error' },
+                { id: 3, time: '0:52', label: 'Less relevency', type: 'warning' },
+                { id: 4, time: '0:56', label: 'Good depth of answer', type: 'success' },
+                { id: 5, time: '1:05', label: 'Upward inflection', type: 'info' },
+                { id: 6, time: '1:15', label: 'You bounced back!', type: 'success' },
+            ];
+
+            const getTypeColors = (type) => {
+                switch (type) {
+                    case 'error': return 'border-red-400 ring-red-100 text-red-700 bg-red-50';
+                    case 'warning': return 'border-orange-400 ring-orange-100 text-orange-700 bg-orange-50';
+                    case 'success': return 'border-emerald-400 ring-emerald-100 text-emerald-700 bg-emerald-50';
+                    default: return 'border-brand-400 ring-brand-100 text-brand-700 bg-brand-50';
+                }
+            };
+
+            return (
+                <div className="relative pl-4 overflow-y-auto h-[200px] pr-2 custom-scrollbar">
+                    <div className="absolute left-6 top-2 bottom-2 w-0.5 bg-slate-200"></div>
+                    {issues.map((issue, idx) => {
+                        const isSelected = selectedIssue?.id === issue.id;
+                        const colors = getTypeColors(issue.type);
+                        const borderColor = colors.split(' ')[0];
+                        const ringColor = colors.split(' ')[1];
+                        const textColor = colors.split(' ')[2];
+                        const bgColor = colors.split(' ')[3];
+
+                        return (
+                            <motion.div
+                                key={issue.id}
+                                initial={{ opacity: 0, x: -10 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: idx * 0.1 }}
+                                onClick={() => onSelectIssue && onSelectIssue(issue)}
+                                className={`relative flex items-center gap-4 mb-4 group cursor-pointer ${isSelected ? 'opacity-100' : 'opacity-80 hover:opacity-100'}`}
+                            >
+                                <div className={`z-10 bg-white border-2 w-4 h-4 rounded-full transition-all ${borderColor} ${isSelected ? `scale-125 ring-4 ${ringColor}` : `group-hover:scale-125 group-hover:ring-4 ${ringColor} shadow-sm`}`}></div>
+                                <div className={`flex-1 p-2 rounded-lg transition-colors border max-w-[200px] ${isSelected ? `${bgColor} border-current border-opacity-20` : 'border-transparent group-hover:bg-slate-50'}`}>
+                                    <span className={`font-semibold w-12 inline-block ${textColor}`}>{issue.time}</span>
+                                    <span className={`font-medium ${isSelected ? textColor : 'text-slate-600'} text-sm leading-tight inline-block align-top max-w-[120px] pb-1`}>{issue.label}</span>
+                                </div>
+                            </motion.div>
+                        );
+                    })}
+                </div>
+            );
+        };
+
+        const SelectionPieChart = () => {
+            const data = [
+                { name: 'Selected', value: 75, color: '#0ea5e9' },
+                { name: 'Rejected', value: 25, color: '#bae6fd' }
+            ];
+            const [activeIndex, setActiveIndex] = useState(0);
+
+            const onPieEnter = (_, index) => {
+                setActiveIndex(index);
+            };
+
+            return (
+                <div className="h-full min-h-[220px] w-full relative flex items-center justify-center">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                            <Pie
+                                data={data}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={60}
+                                outerRadius={85}
+                                paddingAngle={5}
+                                dataKey="value"
+                                cornerRadius={10}
+                                onMouseEnter={onPieEnter}
+                                stroke="none"
+                            >
+                                {data.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={entry.color}
+                                        style={{
+                                            filter: `drop-shadow(0px 10px 10px ${entry.color}50)`,
+                                            transform: activeIndex === index ? 'scale(1.05)' : 'scale(1)',
+                                            transformOrigin: 'center',
+                                            transition: 'all 0.3s ease'
+                                        }}
+                                    />
+                                ))}
+                            </Pie>
+                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' }} />
+                        </PieChart>
+                    </ResponsiveContainer>
+                    <div className="absolute flex flex-col items-center justify-center pointer-events-none">
+                        <span className="text-3xl font-bold text-slate-800">75%</span>
+                        <span className="text-xs text-slate-500 font-medium uppercase tracking-widest">Chance</span>
+                    </div>
+                </div>
+            );
+        };
+
+        const PacingTrendChart = () => {
+            const data = [
+                { time: '0m', wpm: 120 }, { time: '5m', wpm: 145 }, { time: '10m', wpm: 130 },
+                { time: '15m', wpm: 160 }, { time: '20m', wpm: 125 }
+            ];
+            return (
+                <div className="h-full min-h-[100px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={data} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                            <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} dy={5} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
+                            <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }} />
+                            <Line type="monotone" dataKey="wpm" stroke="#8b5cf6" strokeWidth={3} dot={{ r: 4, fill: '#8b5cf6' }} animationDuration={1500} />
+                        </LineChart>
+                    </ResponsiveContainer>
+                </div>
+            );
+        };
+
+        const PauseAnalysisChart = () => {
+            const data = [
+                { name: 'Awkward', value: 3, fill: '#ef4444' },
+                { name: 'Natural', value: 12, fill: '#10b981' },
+                { name: 'Quick', value: 8, fill: '#3b82f6' }
+            ];
+            return (
+                <div className="h-full min-h-[100px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart layout="vertical" data={data} margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
+                            <XAxis type="number" hide />
+                            <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11, fontWeight: 500 }} />
+                            <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ borderRadius: '8px', border: 'none' }} />
+                            <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={14} animationDuration={1500}>
+                                {data.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={entry.fill} />
+                                ))}
+                            </Bar>
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
+            );
+        };
+
+        const WeaknessesChart = () => {
+            const data = [
+                { name: 'Eye Contact', value: 80 },
+                { name: 'Vagueness', value: 65 },
+                { name: 'Conciseness', value: 45 },
+            ];
+
+            return (
+                <div className="h-full min-h-[200px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart layout="vertical" data={data} margin={{ top: 0, right: 20, left: 20, bottom: 0 }}>
+                            <XAxis type="number" hide />
+                            <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12, fontWeight: 500 }} />
+                            <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ borderRadius: '12px', border: 'none' }} />
+                            <Bar dataKey="value" fill="#14b8a6" radius={[0, 6, 6, 0]} barSize={20} animationDuration={2000}>
+                                {data.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={index === 0 ? '#ef4444' : index === 1 ? '#f59e0b' : '#14b8a6'} />
+                                ))}
+                            </Bar>
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
+            );
+        };
+
+        const EnergyAreaChart = () => {
+            const data = [
+                { time: '0m', energy: 60 }, { time: '5m', energy: 80 }, { time: '10m', energy: 75 },
+                { time: '15m', energy: 90 }, { time: '20m', energy: 65 }, { time: '25m', energy: 85 }
+            ];
+
+            return (
+                <div className="h-full min-h-[200px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={data} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
+                            <defs>
+                                <linearGradient id="colorEnergy" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.8} />
+                                    <stop offset="95%" stopColor="#38bdf8" stopOpacity={0} />
+                                </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                            <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} dy={10} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none' }} />
+                            <Area type="monotone" dataKey="energy" stroke="#0284c7" strokeWidth={3} fillOpacity={1} fill="url(#colorEnergy)" animationDuration={2000} />
+                        </AreaChart>
+                    </ResponsiveContainer>
+                </div>
+            );
+        };
+
+        // 4. Hero Insights Card (Complex Interactive Component)
+        const AIInsights = ({ selectedIssue }) => {
+            const [activeTab, setActiveTab] = useState('suggestions');
+            const [generatedText, setGeneratedText] = useState("");
+
+            useEffect(() => {
+                if (selectedIssue) {
+                    setActiveTab('issue_context');
+                }
+            }, [selectedIssue]);
+
+            const getIssueContextText = (issue) => {
+                if (!issue) return "";
+                switch (issue.label) {
+                    case 'Technically wrong understanding':
+                        return `Problem (at ${issue.time}): You conflated Server-Side Rendering (SSR) with Static Site Generation (SSG) when asked about Next.js data fetching.\n\nTechnical Solution: Clearly distinguish that SSR computes the page on every request (via getServerSideProps) while SSG builds the HTML at compile time (getStaticProps). Next time, give a precise example: use SSG for a marketing site, and SSR for a live dashboard.`;
+                    case 'Less relevency':
+                        return `Problem (at ${issue.time}): The interviewer asked how you manage application state, but you rambled about CSS framework decisions.\n\nSolution: Answer the core prompt first. Say "I used Redux Toolkit for global state," and briefly explain why, before moving onto UI layer details if necessary. Keep tangents under 15 seconds.`;
+                    case 'Good depth of answer':
+                        return `Highlight (at ${issue.time}): You provided an excellent, multi-layered explanation of database indexing.\n\nWhy it worked: You started with a high-level analogy (a book's index) to show clear communication skills, then proved your technical mastery by diving into B-Trees.`;
+                    case 'You bounced back!':
+                        return `Highlight (at ${issue.time}): After briefly fumbling the microservices question, you took a sharp breath, paused, and completely nailed the rest of the breakdown.\n\nKeep it up: Interviewers love candidates who show composure under pressure. Recovering gracefully is a huge positive signal.`;
+                    default:
+                        return `Analysis (at ${issue.time}): You triggered a ${issue.label} flag.\n\nSolution: Go back to the recording at this exact timestamp. Practice delivering this specific paragraph in the 'Practice' module to build muscle memory and smooth out delivery.`;
+                }
+            };
+
+            const contentMap = {
+                issue_context: getIssueContextText(selectedIssue),
+                suggestions: "Instead of saying 'I sort of did the full-stack work', explicitly state your ownership: 'I architected and led the development of both the frontend UI in React and the backend Node.js APIs, improving system load times by 40%.'",
+                tips: "• Maintain stronger eye contact with the camera.\n• Pause for 1 second before answering complex questions.\n• Vary your tone to emphasize key project achievements."
+            };
+
+            // Typing Effect simulation
+            useEffect(() => {
+                setGeneratedText("");
+                let i = 0;
+                const txt = contentMap[activeTab] || "";
+                const speed = 15;
+
+                let timeoutId;
+                const typeWriter = () => {
+                    if (i < txt.length) {
+                        setGeneratedText(prev => prev + txt.charAt(i));
+                        i++;
+                        timeoutId = setTimeout(typeWriter, speed);
+                    }
+                };
+
+                typeWriter();
+                return () => clearTimeout(timeoutId);
+            }, [activeTab, selectedIssue]);
+
+            const tabs = [
+                ...(selectedIssue ? [{ id: 'issue_context', label: 'Timeline Analysis' }] : []),
+                { id: 'suggestions', label: 'Keyword Suggestions' },
+                { id: 'tips', label: 'What & How to Say It' }
+            ];
+
+            return (
+                <div className="glass-card flex flex-col overflow-hidden border-2 border-brand-200/50 shadow-[0_20px_50px_rgba(14,165,233,0.15)] col-span-1 md:col-span-2 lg:col-span-3">
+                    <div className="bg-gradient-to-r from-brand-500 to-accent-purple p-6 text-white flex justify-between items-center relative overflow-hidden">
+                        <div className="relative z-10">
+                            <h2 className="text-2xl font-bold flex items-center gap-2">
+                                <Icon name="sparkles" size={24} /> AI Analysis & Insights
+                            </h2>
+                            <p className="opacity-90 mt-1 font-medium">Actionable intelligence to perfect your next response.</p>
+                        </div>
+                        {/* Decorative background shapes */}
+                        <div className="absolute top-0 right-0 -mr-10 -mt-10 w-40 h-40 bg-white/10 rounded-full blur-2xl"></div>
+                        <div className="absolute bottom-0 right-20 w-32 h-32 bg-accent-teal/20 rounded-full blur-2xl"></div>
+                    </div>
+
+                    <div className="p-6 flex flex-col md:flex-row gap-6">
+                        {/* Tabs */}
+                        <div className="flex flex-col gap-2 min-w-[200px]">
+                            {tabs.map(tab => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setActiveTab(tab.id)}
+                                    className={`px-4 py-3 rounded-xl text-left font-semibold transition-all ${activeTab === tab.id
+                                        ? 'bg-brand-100 text-brand-700 shadow-sm'
+                                        : 'text-slate-500 hover:bg-slate-50'
+                                        }`}
+                                >
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Content Area */}
+                        <div className="flex-1 bg-white/50 border border-slate-100 rounded-2xl p-6 relative">
+                            <motion.div
+                                className="whitespace-pre-wrap text-slate-700 leading-relaxed font-medium"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                            >
+                                {generatedText}
+                                <span className="inline-block w-1 h-4 ml-1 bg-brand-500 animate-pulse"></span>
+                            </motion.div>
+
+                            <button className="absolute top-4 right-4 p-2 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors">
+                                <Icon name="copy" size={18} />
+                            </button>
+
+                            <button className="group absolute bottom-4 right-4 p-3 flex items-center justify-center bg-gradient-to-r from-brand-500 to-accent-purple text-white shadow-lg hover:shadow-[0_10px_20px_rgba(14,165,233,0.3)] transition-all rounded-full animate-bounce z-10">
+                                <span className="text-2xl select-none leading-none transition-transform duration-300 group-hover:scale-125">🤖</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- UPLOAD VIEW COMPONENT ---
+        const UploadView = ({ onUpload }) => {
+            const [isDragging, setIsDragging] = useState(false);
+            const [isUploading, setIsUploading] = useState(false);
+
+            const handleDrop = (e) => {
+                e.preventDefault();
+                setIsDragging(false);
+                handleFiles(e.dataTransfer.files);
+            };
+
+            const handleFiles = (files) => {
+                if (!files || files.length === 0) return;
+                setIsUploading(true);
+                // Simulate an upload & analysis delay
+                setTimeout(() => {
+                    setIsUploading(false);
+                    onUpload(); // Go back to dashboard on finish
+                }, 1500);
+            };
+
+            return (
+                <div className="flex-1 flex flex-col items-center justify-center p-10 h-[calc(100vh-2rem)]">
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="w-full max-w-4xl"
+                    >
+                        <div
+                            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                            onDragLeave={() => setIsDragging(false)}
+                            onDrop={handleDrop}
+                            onClick={() => document.getElementById('file-upload').click()}
+                            className={`glass-card border-2 border-dashed transition-all duration-300 cursor-pointer flex flex-col items-center justify-center py-32 px-10 text-center ${isDragging ? 'border-brand-500 bg-brand-50 shadow-[0_0_30px_rgba(14,165,233,0.15)]' : 'border-slate-300/80 hover:border-brand-400 bg-slate-200/30 hover:bg-slate-200/50'
+                                }`}
+                        >
+                            <input type="file" id="file-upload" className="hidden" accept="video/mp4" onChange={(e) => handleFiles(e.target.files)} />
+
+                            {isUploading ? (
+                                <div className="flex flex-col items-center gap-4">
+                                    <Icon name="loader-2" size={48} className="text-brand-600 animate-spin" />
+                                    <h3 className="text-2xl font-bold text-slate-800">Analyzing Interview...</h3>
+                                    <p className="text-brand-600 font-medium tracking-wide">Extracting insights via AI.</p>
+                                </div>
+                            ) : (
+                                <>
+                                    <motion.div
+                                        animate={{ y: [0, -5, 0] }}
+                                        transition={{ repeat: Infinity, duration: 2.5 }}
+                                        className="mb-6 text-accent-purple"
+                                    >
+                                        <Icon name="cloud-upload" size={64} />
+                                    </motion.div>
+                                    <h3 className="text-3xl font-bold text-brand-800 mb-3">
+                                        Drag & Drop your files here, or click to browse
+                                    </h3>
+                                    <p className="text-brand-600 font-semibold tracking-wider text-sm uppercase">
+                                        Supports MP4 (MAX 5 MIN)
+                                    </p>
+                                </>
+                            )}
+                        </div>
+                    </motion.div>
+                </div>
+            );
+        };
+
+        // --- LOGIN VIEW COMPONENT ---
+        const LoginView = ({ onLogin }) => {
+            const [mode, setMode] = useState('login'); // 'login' or 'signup'
+
+            return (
+                <div className="absolute inset-0 z-[100] flex items-center justify-center p-6 overflow-auto" style={{ background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 40%, #f5f3ff 100%)' }}>
+                    {/* Decorative blobs */}
+                    <div className="absolute top-0 left-0 w-96 h-96 bg-brand-300 rounded-full blur-3xl opacity-20 -translate-x-1/2 -translate-y-1/2"></div>
+                    <div className="absolute bottom-0 right-0 w-80 h-80 bg-accent-purple rounded-full blur-3xl opacity-15 translate-x-1/4 translate-y-1/4"></div>
+
+                    <motion.div
+                        key={mode}
+                        initial={{ opacity: 0, y: 24, scale: 0.97 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        transition={{ duration: 0.35, ease: 'easeOut' }}
+                        className="glass-card max-w-md w-full p-8 md:p-10 border border-slate-200/60 shadow-2xl relative overflow-hidden z-10"
+                    >
+                        <div className="absolute top-0 right-0 w-40 h-40 bg-brand-200 rounded-full blur-3xl -mr-10 -mt-10 opacity-40 pointer-events-none"></div>
+
+                        <div className="relative z-10">
+                            {/* Logo */}
+                            <div className="flex items-center gap-3 mb-7 justify-center">
+                                <img src="logo.png" alt="Hirelytics" className="w-11 h-11 object-contain drop-shadow-md" />
+                                <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-brand-700 to-accent-purple tracking-tight">Hirelytics</h1>
+                            </div>
+
+                            {/* Tab toggle */}
+                            <div className="flex bg-slate-100 rounded-xl p-1 mb-7 gap-1">
+                                <button onClick={() => setMode('login')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${mode === 'login' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Log In</button>
+                                <button onClick={() => setMode('signup')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${mode === 'signup' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Create Account</button>
+                            </div>
+
+                            {mode === 'login' ? (
+                                <div className="flex flex-col gap-4">
+                                    <p className="text-slate-500 text-sm font-medium text-center -mt-2 mb-1">Welcome back! Enter your credentials.</p>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1.5 ml-1">Email</label>
+                                        <div className="relative"><div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400"><Icon name="mail" size={17} /></div>
+                                            <input type="email" placeholder="you@example.com" className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-200 outline-none transition-all placeholder:text-slate-400 font-medium text-slate-700 bg-white/70" /></div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1.5 ml-1">Password</label>
+                                        <div className="relative"><div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400"><Icon name="lock" size={17} /></div>
+                                            <input type="password" placeholder="••••••••" className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-200 outline-none transition-all placeholder:text-slate-400 font-medium text-slate-700 bg-white/70" /></div>
+                                    </div>
+                                    <div className="flex items-center justify-between text-sm">
+                                        <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" className="rounded border-slate-300" /><span className="font-semibold text-slate-600">Remember me</span></label>
+                                        <a href="#" className="font-bold text-brand-600 hover:text-brand-800 transition-colors">Forgot password?</a>
+                                    </div>
+                                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={onLogin}
+                                        className="w-full bg-gradient-to-r from-brand-500 to-accent-teal text-white py-3.5 rounded-xl font-bold shadow-lg shadow-brand-500/25 mt-1 flex justify-center items-center gap-2">
+                                        Log In <Icon name="arrow-right" size={18} />
+                                    </motion.button>
+                                </div>
+                            ) : (
+                                <div className="flex flex-col gap-4">
+                                    <p className="text-slate-500 text-sm font-medium text-center -mt-2 mb-1">Start your interview mastery journey.</p>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-1.5 ml-1">First Name</label>
+                                            <input type="text" placeholder="Alex" className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-200 outline-none transition-all placeholder:text-slate-400 font-medium text-slate-700 bg-white/70" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-1.5 ml-1">Last Name</label>
+                                            <input type="text" placeholder="Johnson" className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-200 outline-none transition-all placeholder:text-slate-400 font-medium text-slate-700 bg-white/70" />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1.5 ml-1">Email</label>
+                                        <div className="relative"><div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400"><Icon name="mail" size={17} /></div>
+                                            <input type="email" placeholder="you@example.com" className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-200 outline-none transition-all placeholder:text-slate-400 font-medium text-slate-700 bg-white/70" /></div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1.5 ml-1">Password</label>
+                                        <div className="relative"><div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400"><Icon name="lock" size={17} /></div>
+                                            <input type="password" placeholder="Create a strong password" className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-200 outline-none transition-all placeholder:text-slate-400 font-medium text-slate-700 bg-white/70" /></div>
+                                    </div>
+                                    <label className="flex items-center gap-2 cursor-pointer text-sm">
+                                        <input type="checkbox" className="rounded border-slate-300" />
+                                        <span className="text-slate-600 font-medium">I agree to the <a href="#" className="text-brand-600 font-bold hover:underline">Terms of Service</a></span>
+                                    </label>
+                                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={onLogin}
+                                        className="w-full bg-gradient-to-r from-accent-purple to-brand-500 text-white py-3.5 rounded-xl font-bold shadow-lg shadow-purple-400/25 flex justify-center items-center gap-2">
+                                        Create Account <Icon name="user-plus" size={18} />
+                                    </motion.button>
+                                </div>
+                            )}
+                        </div>
+                    </motion.div>
+                </div>
+            );
+        };
+
+        // --- PROGRESS VIEW COMPONENTS ---
+
+        const ProgressHeader = () => (
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+                <div>
+                    <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-brand-800 to-accent-purple tracking-tight">Your Progress</h2>
+                    <p className="text-slate-500 mt-1 font-medium">Track your improvement across interviews.</p>
+                </div>
+                <div className="flex gap-4">
+                    <select className="glass-card px-4 py-2 border border-slate-200 outline-none focus:ring-2 focus:ring-brand-500 rounded-xl text-slate-700 font-medium hover:bg-slate-50 transition-colors cursor-pointer shadow-sm">
+                        <option>Last 7 Interviews</option>
+                        <option>Last 30 Interviews</option>
+                        <option>All Time</option>
+                    </select>
+                </div>
+            </div>
+        );
+
+        const OverallProgressScore = () => {
+            const data = [{ name: 'Score', value: 85 }, { name: 'Remain', value: 15 }];
+            return (
+                <div className="flex flex-col sm:flex-row items-center gap-6 h-full p-2 justify-center">
+                    <div className="w-36 h-36 relative shrink-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                                <Pie
+                                    data={data} cx="50%" cy="50%" innerRadius={50} outerRadius={65}
+                                    startAngle={90} endAngle={-270} dataKey="value" stroke="none"
+                                >
+                                    <Cell fill="url(#progressGradient)" />
+                                    <Cell fill="#e2e8f0" />
+                                </Pie>
+                                <defs>
+                                    <linearGradient id="progressGradient" x1="0" y1="0" x2="1" y2="1">
+                                        <stop offset="0%" stopColor="#0ea5e9" />
+                                        <stop offset="100%" stopColor="#8b5cf6" />
+                                    </linearGradient>
+                                </defs>
+                            </PieChart>
+                        </ResponsiveContainer>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                            <span className="text-4xl font-bold text-slate-800">85</span>
+                        </div>
+                    </div>
+                    <div className="flex-1 text-center sm:text-left">
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-100/80 text-emerald-700 rounded-lg text-sm font-bold mb-3 border border-emerald-200 shadow-sm">
+                            <Icon name="trending-up" size={16} /> +13% Overall
+                        </div>
+                        <h3 className="font-bold text-lg text-slate-800">Excellent Growth!</h3>
+                        <p className="text-slate-500 text-sm mt-1 leading-relaxed">You've moved up from a score of 72. Keep practicing to hit the 90+ elite bracket.</p>
+                    </div>
+                </div>
+            );
+        };
+
+        const PerformanceHistoryChart = () => {
+            const data = [
+                { date: 'Oct 1', score: 65 }, { date: 'Oct 8', score: 68 }, { date: 'Oct 15', score: 72 },
+                { date: 'Oct 22', score: 80 }, { date: 'Oct 29', score: 85 }
+            ];
+            return (
+                <div className="h-full min-h-[250px] w-full mt-4">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={data} margin={{ top: 10, right: 20, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                            <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12, fontWeight: 500 }} dy={10} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12, fontWeight: 500 }} domain={[0, 100]} />
+                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' }} />
+                            <Line type="monotone" dataKey="score" stroke="url(#historyGrad)" strokeWidth={4} dot={{ r: 6, fill: '#0ea5e9', strokeWidth: 3, stroke: '#fff' }} activeDot={{ r: 8 }} animationDuration={2000} />
+                            <defs>
+                                <linearGradient id="historyGrad" x1="0" y1="0" x2="1" y2="0">
+                                    <stop offset="0%" stopColor="#38bdf8" />
+                                    <stop offset="100%" stopColor="#8b5cf6" />
+                                </linearGradient>
+                            </defs>
+                        </LineChart>
+                    </ResponsiveContainer>
+                </div>
+            );
+        };
+
+        const SkillsComparisonChart = () => {
+            const data = [
+                { skill: 'Confidence', prev: 60, curr: 85 },
+                { skill: 'Clarity', prev: 55, curr: 80 },
+                { skill: 'Tech', prev: 70, curr: 85 },
+                { skill: 'Fluency', prev: 65, curr: 75 },
+            ];
+            return (
+                <div className="h-full min-h-[250px] w-full mt-4">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={data} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                            <XAxis dataKey="skill" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12, fontWeight: 600 }} dy={10} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                            <Tooltip cursor={{ fill: 'rgba(203,213,225,0.2)' }} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 10px 20px rgba(0,0,0,0.05)' }} />
+                            <Legend wrapperStyle={{ paddingTop: '15px' }} iconType="circle" />
+                            <Bar dataKey="prev" name="Previous Session" fill="#cbd5e1" radius={[4, 4, 0, 0]} barSize={24} animationDuration={1500} />
+                            <Bar dataKey="curr" name="Current Session" fill="#8b5cf6" radius={[4, 4, 0, 0]} barSize={24} animationDuration={1500} />
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
+            );
+        };
+
+        const FillerWordsChart = () => {
+            const data = [
+                { session: 'S1', um: 45, like: 30 }, { session: 'S2', um: 38, like: 25 },
+                { session: 'S3', um: 25, like: 18 }, { session: 'S4', um: 15, like: 10 },
+                { session: 'S5', um: 8, like: 5 }
+            ];
+            return (
+                <div className="h-full min-h-[220px] w-full relative group">
+                    <div className="absolute -top-2 right-2 bg-emerald-50 text-emerald-600 font-bold px-3 py-1 rounded-full text-xs border border-emerald-200 shadow-sm z-10 transition-transform group-hover:scale-105">Reduced by 78% 🎉</div>
+                    <div className="pt-6 w-full h-[calc(100%-1.5rem)]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={data} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
+                                <defs>
+                                    <linearGradient id="colorUm" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.6} />
+                                        <stop offset="95%" stopColor="#f43f5e" stopOpacity={0} />
+                                    </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                <XAxis dataKey="session" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12, fontWeight: 500 }} dy={10} />
+                                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }} />
+                                <Area type="monotone" dataKey="um" name='"Um" & "Uh"' stroke="#f43f5e" strokeWidth={3} fillOpacity={1} fill="url(#colorUm)" animationDuration={2000} />
+                                <Area type="monotone" dataKey="like" name='"Like"' stroke="#f59e0b" strokeWidth={2} fillOpacity={0.1} fill="#f59e0b" animationDuration={2000} />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+            );
+        };
+
+        const SpeakingPaceChart = () => {
+            const data = [
+                { date: 'S1', pace: 90 }, { date: 'S2', pace: 105 }, { date: 'S3', pace: 135 },
+                { date: 'S4', pace: 160 }, { date: 'S5', pace: 145 }
+            ];
+            return (
+                <div className="h-full min-h-[220px] w-full mt-4">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                            <ReferenceArea y1={130} y2={160} fill="#10b981" fillOpacity={0.08} />
+                            <text x="50%" y="15" fill="#10b981" textAnchor="middle" fontSize="11" fontWeight="bold">Optimal Zone (130-160 WPM)</text>
+                            <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12, fontWeight: 500 }} dy={10} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} domain={[50, 200]} />
+                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }} />
+                            <Line type="smooth" dataKey="pace" name="Words per min" stroke="#10b981" strokeWidth={3} dot={{ r: 4, fill: '#10b981', strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 7 }} animationDuration={2000} />
+                        </LineChart>
+                    </ResponsiveContainer>
+                </div>
+            );
+        };
+
+        const RedFlagsTracking = () => {
+            const data = [
+                { session: 'S1', technical: 18, relevance: 12, fumbling: 15 },
+                { session: 'S2', technical: 12, relevance: 10, fumbling: 8 },
+                { session: 'S3', technical: 5, relevance: 4, fumbling: 3 },
+            ];
+            return (
+                <div className="h-full min-h-[220px] w-full mt-2">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={data} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                            <XAxis dataKey="session" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12, fontWeight: 600 }} dy={10} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                            <Tooltip cursor={{ fill: 'rgba(244,63,94,0.05)' }} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }} />
+                            <Legend wrapperStyle={{ paddingTop: '15px' }} iconType="circle" />
+                            <Bar dataKey="technical" name="Tech Errors" fill="#f43f5e" radius={[4, 4, 0, 0]} animationDuration={1500} />
+                            <Bar dataKey="relevance" name="Irrelevance" fill="#f59e0b" radius={[4, 4, 0, 0]} animationDuration={1500} />
+                            <Bar dataKey="fumbling" name="Fumbling" fill="#8b5cf6" radius={[4, 4, 0, 0]} animationDuration={1500} />
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
+            );
+        };
+
+        const GoalTracker = () => {
+            const goals = [
+                { name: 'Reduce Filler Words', progress: 95, color: 'from-amber-400 to-amber-500' },
+                { name: 'Improve Confidence', progress: 75, color: 'from-accent-purple to-purple-600' },
+                { name: 'Maintain Steady Pace', progress: 100, color: 'from-teal-400 to-teal-500', isComplete: true },
+            ];
+            return (
+                <div className="space-y-6 mt-4 flex justify-center flex-col h-full pb-4">
+                    {goals.map((goal, idx) => (
+                        <div key={idx} className="group cursor-default">
+                            <div className="flex justify-between text-sm mb-2">
+                                <span className="font-semibold text-slate-700 flex items-center gap-2">
+                                    {goal.isComplete ? <Icon name="check-circle-2" size={16} className="text-teal-500" /> : <Icon name="target" size={16} className="text-slate-400" />}
+                                    {goal.name}
+                                </span>
+                                <span className={`font-bold ${goal.isComplete ? 'text-teal-600' : 'text-brand-600'}`}>{goal.progress}%</span>
+                            </div>
+                            <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden shadow-inner flex">
+                                <motion.div
+                                    initial={{ width: 0 }}
+                                    whileInView={{ width: `${goal.progress}%` }}
+                                    viewport={{ once: true }}
+                                    transition={{ duration: 1.5, delay: idx * 0.2, ease: "easeOut" }}
+                                    className={`h-full rounded-full bg-gradient-to-r ${goal.color} relative overflow-hidden`}
+                                >
+                                    <div className="absolute inset-0 bg-white/20 w-full animate-[shimmer_2s_infinite]"></div>
+                                </motion.div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            );
+        };
+
+        const FeedbackTimeline = () => {
+            return (
+                <div className="relative pl-6 space-y-6 mt-4 before:absolute before:inset-0 before:ml-[1.4rem] before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-slate-200 before:to-transparent pb-4">
+
+                    <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                        <div className="flex items-center justify-center w-10 h-10 rounded-full border-4 border-white bg-slate-100 text-slate-400 shadow-sm shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 transition-transform group-hover:scale-110 group-hover:text-amber-500">
+                            <Icon name="history" size={18} />
+                        </div>
+                        <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] glass-card p-5 rounded-2xl opacity-75 hover:opacity-100 transition-opacity cursor-default border border-slate-200 hover:border-amber-200 hover:shadow-[0_4px_20px_rgba(245,158,11,0.05)]">
+                            <h4 className="font-bold text-slate-800 text-sm">Month 1</h4>
+                            <p className="text-slate-500 text-sm mt-2 leading-relaxed">"You avoided eye contact and spoke too quietly during technical answers, which reduced confidence."</p>
+                        </div>
+                    </motion.div>
+
+                    <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: 0.2 }} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                        <div className="flex items-center justify-center w-10 h-10 rounded-full border-4 border-white bg-gradient-to-tr from-brand-500 to-accent-purple text-white shadow-md shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 ring-4 ring-brand-50 transition-transform group-hover:scale-110">
+                            <Icon name="check" size={18} />
+                        </div>
+                        <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] bg-white border-2 border-brand-100 p-5 rounded-2xl shadow-lg relative overflow-hidden group-hover:border-brand-300 transition-colors cursor-default">
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-brand-50 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
+                            <h4 className="font-bold text-brand-700 text-sm relative z-10 flex items-center justify-between">Current Session <span className="bg-brand-100 text-brand-700 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">Latest</span></h4>
+                            <p className="text-slate-700 text-sm mt-2 font-medium leading-relaxed relative z-10">"Excellent eye contact! You held presence commandingly and explained the architecture clearly."</p>
+                        </div>
+                    </motion.div>
+
+                </div>
+            );
+        };
+
+        const ProgressView = () => {
+            return (
+                <div className="p-8 lg:p-10 max-w-7xl mx-auto w-full animate-fade-in pb-20">
+                    <ProgressHeader />
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {/* Top Row Cards */}
+                        <Card title="Overall Improvement" icon="award" className="col-span-1 lg:col-span-1 border-emerald-100 bg-gradient-to-br from-white to-emerald-50/30">
+                            <OverallProgressScore />
+                        </Card>
+
+                        <Card title="Performance History" icon="trending-up" className="col-span-1 md:col-span-1 lg:col-span-2">
+                            <PerformanceHistoryChart />
+                        </Card>
+
+                        {/* Middle Row */}
+                        <Card title="Skills Evolution" icon="bar-chart" className="col-span-1 md:col-span-2 lg:col-span-2">
+                            <SkillsComparisonChart />
+                        </Card>
+
+                        <Card title="Goal Tracking" icon="target" className="col-span-1 lg:col-span-1">
+                            <GoalTracker />
+                        </Card>
+
+                        {/* Bottom Row */}
+                        <Card title="Filler Words" icon="mic-off" className="col-span-1">
+                            <FillerWordsChart />
+                        </Card>
+
+                        <Card title="Speaking Pace" icon="activity" className="col-span-1">
+                            <SpeakingPaceChart />
+                        </Card>
+
+                        <Card title="Mistakes Over Time" icon="flag" className="col-span-1">
+                            <RedFlagsTracking />
+                        </Card>
+
+                        <Card title="Job Role Alignment" icon="crosshair" className="col-span-1 md:col-span-2 lg:col-span-2 bg-gradient-to-br from-white to-brand-50/50">
+                            <JobFitResonance />
+                        </Card>
+
+                        <div className="col-span-1 md:col-span-2 lg:col-span-3 mt-2">
+                            <Card title="AI Feedback Evolution" icon="brain-circuit">
+                                <FeedbackTimeline />
+                            </Card>
+                        </div>
+
+                    </div>
+                </div>
+            );
+        };
+
+        const JobFitResonance = () => {
+            const [jobTitle, setJobTitle] = useState("");
+            const [isScanning, setIsScanning] = useState(false);
+            const [result, setResult] = useState(null);
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (!jobTitle) return;
+                setIsScanning(true);
+                setTimeout(() => {
+                    setResult(true);
+                    setIsScanning(false);
+                }, 1500);
+            };
+
+            return (
+                <div className="w-full h-full flex flex-col justify-center min-h-[200px]">
+                    {!result ? (
+                        <form onSubmit={handleSubmit} className="flex flex-col gap-4 max-w-sm mx-auto w-full">
+                            <label className="text-sm font-semibold text-slate-700 text-center">Enter your target role to see if you're ready.</label>
+                            <div className="flex gap-2 w-full">
+                                <input
+                                    type="text"
+                                    placeholder="e.g. Senior Nodejs Developer"
+                                    value={jobTitle}
+                                    onChange={(e) => setJobTitle(e.target.value)}
+                                    className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-brand-400 outline-none transition-all placeholder:text-slate-400 shadow-sm"
+                                />
+                                <button type="submit" disabled={isScanning} className="bg-gradient-to-r from-brand-600 to-accent-teal hover:from-brand-700 hover:to-teal-600 text-white px-5 rounded-xl font-bold transition-all shadow-md disabled:opacity-50 flex items-center justify-center min-w-[100px]">
+                                    {isScanning ? <Icon name="loader-2" size={18} className="animate-spin" /> : 'Analyze'}
+                                </button>
+                            </div>
+                        </form>
+                    ) : (
+                        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col gap-4">
+                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-brand-50 rounded-xl p-4 border border-brand-100/50 gap-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-brand-600 shadow-sm"><Icon name="briefcase" size={24} /></div>
+                                    <div>
+                                        <h4 className="font-bold text-slate-800 text-sm">Target Role</h4>
+                                        <p className="text-slate-600 text-xs font-medium uppercase tracking-wider">{jobTitle}</p>
+                                    </div>
+                                </div>
+                                <div className="text-left sm:text-right">
+                                    <h4 className="font-black text-amber-500 text-2xl drop-shadow-sm">68% Match</h4>
+                                    <p className="text-slate-500 text-xs font-medium">Based on your 3 latest interviews.</p>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+                                <div className="glass-card bg-white/40 p-3 rounded-xl border border-slate-200">
+                                    <div className="flex justify-between text-xs mb-2 font-bold"><span className="text-slate-700">Technical Depth</span><span className="text-amber-600">Needs Work</span></div>
+                                    <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: '45%' }} transition={{ duration: 1 }} className="bg-amber-400 h-full rounded-full"></motion.div></div>
+                                    <p className="text-[10px] text-slate-500 mt-2 font-medium leading-tight">Your architectural answers lack specifics required for Senior roles.</p>
+                                </div>
+                                <div className="glass-card bg-white/40 p-3 rounded-xl border border-slate-200">
+                                    <div className="flex justify-between text-xs mb-2 font-bold"><span className="text-slate-700">Communication</span><span className="text-emerald-600">Excellent</span></div>
+                                    <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: '85%' }} transition={{ duration: 1 }} className="bg-emerald-500 h-full rounded-full"></motion.div></div>
+                                    <p className="text-[10px] text-slate-500 mt-2 font-medium leading-tight">Excellent pacing and very few filler words detected.</p>
+                                </div>
+                            </div>
+
+                            <button onClick={() => setResult(null)} className="text-xs font-semibold text-slate-400 hover:text-brand-600 mt-1 transition-colors text-center w-full">Scan Another Role</button>
+                        </motion.div>
+                    )}
+                </div>
+            );
+        };
+
+        // --- HISTORY VIEW ---
+        const HistoryView = () => {
+            const [search, setSearch] = useState('');
+            const [filter, setFilter] = useState('recent');
+            const [selectedCard, setSelectedCard] = useState(null);
+
+            const interviews = [
+                { id: 2, title: 'Full Stack Engineer', company: 'TechNova', type: 'Real', date: 'Apr 8, 2026', score: 63, filler: 'High', confidence: 'Needs Improvement', pacing: 'Fast', pauses: 'Many Awkward', tags: ['Fumbled', 'Weak Ending'], trend: [40, 45, 50, 55, 63, 60, 63] },
+                { id: 3, title: 'React Developer', company: 'DevHouse', type: 'Mock', date: 'Apr 3, 2026', score: 74, filler: 'Medium', confidence: 'Good', pacing: 'Normal', pauses: 'Mostly Natural', tags: ['Bounced Back', 'Good Closure'], trend: [50, 58, 65, 70, 74, 72, 74] },
+                { id: 4, title: 'Backend Node.js', company: 'CloudBase', type: 'Real', date: 'Mar 28, 2026', score: 55, filler: 'High', confidence: 'Needs Improvement', pacing: 'Slow', pauses: 'Many Awkward', tags: ['Fumbled', 'Off-topic'], trend: [30, 38, 45, 50, 48, 52, 55] },
+                { id: 6, title: 'Data Structures Round', company: 'Seed.io', type: 'Real', date: 'Mar 14, 2026', score: 68, filler: 'Medium', confidence: 'Good', pacing: 'Fast', pauses: 'Mostly Natural', tags: ['Improved Clarity', 'Weak Ending'], trend: [45, 52, 58, 63, 68, 65, 68] },
+            ];
+
+            const filtered = interviews.filter(i =>
+                i.title.toLowerCase().includes(search.toLowerCase()) ||
+                i.company.toLowerCase().includes(search.toLowerCase())
+            );
+            const sorted = [...filtered].sort((a, b) => filter === 'recent' ? b.id - a.id : filter === 'score' ? b.score - a.score : a.score - b.score);
+            const avgScore = Math.round(interviews.reduce((s, i) => s + i.score, 0) / interviews.length);
+            const bestSession = interviews.reduce((best, i) => i.score > best.score ? i : best, interviews[0]);
+
+            const scoreColor = (s) => s >= 80 ? 'text-emerald-600' : s >= 65 ? 'text-amber-500' : 'text-red-500';
+            const scoreBg = (s) => s >= 80 ? 'bg-emerald-50 border-emerald-200' : s >= 65 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200';
+            const tagColor = (t) => ['Good Start', 'Bounced Back', 'Improved Clarity', 'Strong Opening', 'Deep Answer', 'Good Closure'].includes(t) ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600';
+
+            const MiniSparkline = ({ data }) => (
+                <ResponsiveContainer width="100%" height={36}>
+                    <LineChart data={data.map((v, i) => ({ v, i }))}>
+                        <Line type="monotone" dataKey="v" stroke="#0ea5e9" strokeWidth={2} dot={false} />
+                    </LineChart>
+                </ResponsiveContainer>
+            );
+
+            const StatPill = ({ label, value, positive }) => (
+                <div className="flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${value === 'Low' || value === 'Good' || value === 'Normal' || value === 'Mostly Natural' ? 'bg-emerald-400' : value === 'Medium' ? 'bg-amber-400' : 'bg-red-400'}`}></span>
+                    <span className="text-[11px] text-slate-500 font-medium">{label}:</span>
+                    <span className={`text-[11px] font-bold ${value === 'Low' || value === 'Good' || value === 'Normal' || value === 'Mostly Natural' ? 'text-emerald-600' : value === 'Medium' ? 'text-amber-600' : 'text-red-600'}`}>{value}</span>
+                </div>
+            );
+
+            return (
+                <div className="p-8 lg:p-10 max-w-7xl mx-auto w-full animate-fade-in">
+                    {/* Header */}
+                    <div className="mb-8">
+                        <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Interview History</h2>
+                        <p className="text-slate-500 mt-1 font-medium">Review your past interview performances</p>
+                    </div>
+
+                    {/* Summary Bar */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                        {[
+                            { label: 'Total Interviews', value: interviews.length, icon: 'video', color: 'text-brand-600', bg: 'bg-brand-50' },
+                            { label: 'Average Score', value: `${avgScore}%`, icon: 'bar-chart-2', color: 'text-accent-purple', bg: 'bg-purple-50' },
+                            { label: 'Improvement', value: '+27%', icon: 'trending-up', color: 'text-emerald-600', bg: 'bg-emerald-50' },
+                            { label: 'Best Score', value: `${bestSession.score}%`, icon: 'trophy', color: 'text-amber-600', bg: 'bg-amber-50' },
+                        ].map((stat, i) => (
+                            <motion.div key={i} whileHover={{ y: -3 }} className="glass-card p-4 flex items-center gap-4">
+                                <div className={`w-11 h-11 rounded-xl ${stat.bg} flex items-center justify-center ${stat.color} shrink-0`}>
+                                    <Icon name={stat.icon} size={20} />
+                                </div>
+                                <div>
+                                    <p className="text-2xl font-black text-slate-800">{stat.value}</p>
+                                    <p className="text-xs text-slate-500 font-medium mt-0.5">{stat.label}</p>
+                                </div>
+                            </motion.div>
+                        ))}
+                    </div>
+
+
+                    {/* Search & Filter */}
+                    <div className="flex flex-col sm:flex-row gap-3 mb-6">
+                        <div className="relative flex-1">
+                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400"><Icon name="search" size={17} /></div>
+                            <input type="text" placeholder="Search by company or role..." value={search} onChange={e => setSearch(e.target.value)}
+                                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-200 outline-none transition-all placeholder:text-slate-400 font-medium bg-white/70 shadow-sm" />
+                        </div>
+                        <select value={filter} onChange={e => setFilter(e.target.value)} className="glass-card px-4 py-2.5 border border-slate-200 outline-none focus:ring-2 focus:ring-brand-500 rounded-xl text-slate-700 font-medium cursor-pointer shadow-sm">
+                            <option value="recent">Most Recent</option>
+                            <option value="score">Highest Score</option>
+                            <option value="lowest">Lowest Score</option>
+                        </select>
+                        <select className="glass-card px-4 py-2.5 border border-slate-200 outline-none focus:ring-2 focus:ring-brand-500 rounded-xl text-slate-700 font-medium cursor-pointer shadow-sm">
+                            <option>All Types</option>
+                            <option>Mock</option>
+                            <option>Real</option>
+                        </select>
+                    </div>
+
+                    {/* Cards Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+                        {sorted.map((item, idx) => (
+                            <motion.div key={item.id}
+                                initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.07 }}
+                                whileHover={{ y: -5, boxShadow: '0 20px 40px rgba(14,165,233,0.12)' }}
+                                className="glass-card p-5 flex flex-col gap-3 cursor-pointer relative overflow-hidden border border-slate-200/80 transition-shadow"
+                                onClick={() => setSelectedCard(item)}
+                            >
+                                {item.badge && <div className="absolute top-3 right-3 text-[10px] font-black text-amber-700 bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-full">{item.badge}</div>}
+
+                                {/* Header */}
+                                <div className="flex items-start justify-between gap-2">
+                                    <div>
+                                        <h4 className="font-bold text-slate-800 leading-tight">{item.title}</h4>
+                                        <p className="text-xs text-slate-500 font-medium mt-0.5">{item.company} · {item.date}</p>
+                                    </div>
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${item.type === 'Mock' ? 'bg-brand-100 text-brand-700' : 'bg-purple-100 text-purple-700'}`}>{item.type}</span>
+                                </div>
+
+                                {/* Score + Sparkline */}
+                                <div className="flex items-center gap-3">
+                                    <div className={`flex flex-col items-center justify-center w-16 h-16 rounded-2xl border-2 shrink-0 ${scoreBg(item.score)}`}>
+                                        <span className={`text-xl font-black ${scoreColor(item.score)}`}>{item.score}%</span>
+                                        <span className="text-[9px] text-slate-400 font-bold uppercase">Score</span>
+                                    </div>
+                                    <div className="flex-1"><MiniSparkline data={item.trend} /></div>
+                                </div>
+
+                                {/* Quick Insights */}
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 bg-slate-50/70 rounded-xl p-3 border border-slate-100">
+                                    <StatPill label="Filler" value={item.filler} />
+                                    <StatPill label="Confidence" value={item.confidence} />
+                                    <StatPill label="Pacing" value={item.pacing} />
+                                    <StatPill label="Pauses" value={item.pauses} />
+                                </div>
+
+                                {/* Tags */}
+                                <div className="flex flex-wrap gap-1.5">
+                                    {item.tags.map(t => (
+                                        <span key={t} className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${tagColor(t)}`}>{t}</span>
+                                    ))}
+                                </div>
+
+                            </motion.div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        // --- LEVEL UP VIEW (FULL FEATURED) ---
+
+        // Radar Chart (SVG-based, no extra lib needed)
+        const SkillRadarChart = ({ data }) => {
+            const size = 200;
+            const center = size / 2;
+            const radius = 70;
+            const levels = 4;
+            const angleStep = (2 * Math.PI) / data.length;
+
+            const getCoord = (angle, r) => ({
+                x: center + r * Math.sin(angle),
+                y: center - r * Math.cos(angle)
+            });
+
+            const gridPolygons = Array.from({ length: levels }, (_, i) => {
+                const r = radius * ((i + 1) / levels);
+                return data.map((_, j) => {
+                    const { x, y } = getCoord(j * angleStep, r);
+                    return `${x},${y}`;
+                }).join(' ');
+            });
+
+            const valuePolygon = data.map((d, i) => {
+                const r = radius * (d.value / 100);
+                const { x, y } = getCoord(i * angleStep, r);
+                return `${x},${y}`;
+            }).join(' ');
+
+            return (
+                <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+                    <defs>
+                        <linearGradient id="radarGrad" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.6" />
+                            <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0.4" />
+                        </linearGradient>
+                    </defs>
+                    {gridPolygons.map((pts, i) => (
+                        <polygon key={i} points={pts} fill="none" stroke="#e2e8f0" strokeWidth="1" />
+                    ))}
+                    {data.map((_, i) => {
+                        const { x, y } = getCoord(i * angleStep, radius);
+                        return <line key={i} x1={center} y1={center} x2={x} y2={y} stroke="#e2e8f0" strokeWidth="1" />;
+                    })}
+                    <polygon points={valuePolygon} fill="url(#radarGrad)" stroke="#0ea5e9" strokeWidth="2" />
+                    {data.map((d, i) => {
+                        const { x, y } = getCoord(i * angleStep, radius + 18);
+                        return (
+                            <text key={i} x={x} y={y} textAnchor="middle" dominantBaseline="middle"
+                                fontSize="9" fontWeight="700" fill="#475569">{d.label}</text>
+                        );
+                    })}
+                    {data.map((d, i) => {
+                        const r = radius * (d.value / 100);
+                        const { x, y } = getCoord(i * angleStep, r);
+                        return <circle key={i} cx={x} cy={y} r={3} fill="#0ea5e9" />;
+                    })}
+                </svg>
+            );
+        };
+
+        const LevelUpView = () => {
+            const [expandedPlan, setExpandedPlan] = useState(null);
+            const [expandedSection, setExpandedSection] = useState({});
+            const [activeView, setActiveView] = useState('data');
+            const [completedTasks, setCompletedTasks] = useState({});
+            const [completedChallenges, setCompletedChallenges] = useState({});
+            const [tooltip, setTooltip] = useState(null);
+
+            const toggleSection = (planId, section) => {
+                setExpandedSection(prev => ({
+                    ...prev,
+                    [`${planId}-${section}`]: !prev[`${planId}-${section}`]
+                }));
+            };
+
+            const radarData = [
+                { label: 'Clarity', value: 62 },
+                { label: 'Confidence', value: 54 },
+                { label: 'Structure', value: 71 },
+                { label: 'Delivery', value: 58 }
+            ];
+
+            const gapData = [
+                { metric: 'Confidence', you: 54, ideal: 85 },
+                { metric: 'Clarity', you: 62, ideal: 90 },
+                { metric: 'Pacing', you: 75, ideal: 88 },
+                { metric: 'Filler Words', you: 40, ideal: 92 },
+            ];
+
+            const pacingData = [
+                { session: 'S1', pace: 92, idealMin: 120, idealMax: 160 },
+                { session: 'S2', pace: 108, idealMin: 120, idealMax: 160 },
+                { session: 'S3', pace: 132, idealMin: 120, idealMax: 160 },
+                { session: 'S4', pace: 155, idealMin: 120, idealMax: 160 },
+                { session: 'S5', pace: 148, idealMin: 120, idealMax: 160 },
+            ];
+
+            const pauseData = [
+                { name: 'Awkward', value: 5, fill: '#ef4444' },
+                { name: 'Natural', value: 14, fill: '#14b8a6' },
+                { name: 'Quick', value: 9, fill: '#0ea5e9' },
+            ];
+
+            const fillerTrendData = [
+                { session: 'S1', fillers: 42 },
+                { session: 'S2', fillers: 35 },
+                { session: 'S3', fillers: 24 },
+                { session: 'S4', fillers: 14 },
+                { session: 'S5', fillers: 9 },
+            ];
+
+            const steps = [
+                {
+                    id: 1, title: 'Eliminate Filler Words', icon: 'mic-off', priority: 'Critical', progress: 40, color: 'red',
+                    whyMatters: 'Frequent filler words reduce perceived confidence by ~30% and signal lack of preparation to interviewers.',
+                    howToFix: ['Record 5-min answers with zero fillers', 'Use a filler word counter app daily', 'Practice STAR-method responses silently first'],
+                    whatToImprove: 'Your filler word density is 2.3x above the ideal threshold. You average 42 fillers per session.'
+                },
+                {
+                    id: 2, title: 'Technical Accuracy', icon: 'cpu', priority: 'High', progress: 55, color: 'orange',
+                    whyMatters: 'Conflating technical concepts signals shallow knowledge. Interviewers use this to filter out candidates.',
+                    howToFix: ['Revise SSR vs SSG differences', 'Practice system design on Excalidraw', 'Explain concepts out loud to a rubber duck'],
+                    whatToImprove: 'You conflated key concepts in 2 of 5 sessions. Build a flashcard deck for your domain.'
+                },
+                {
+                    id: 3, title: 'Answer Relevancy', icon: 'target', priority: 'High', progress: 60, color: 'amber',
+                    whyMatters: 'Off-topic answers waste interview time and imply poor listening skills — a top disqualifier.',
+                    howToFix: ['Write STAR outlines for 10 behavioural questions', 'Time your answers to 90-second limit', 'Record and listen back for tangents'],
+                    whatToImprove: 'Answers occasionally drift off-topic. Master the STAR framework to stay on track.'
+                },
+                {
+                    id: 4, title: 'Pacing & Delivery', icon: 'activity', priority: 'Medium', progress: 75, color: 'brand',
+                    whyMatters: 'Speaking too fast (>170 WPM) makes it hard to follow ideas. Ideal pace is 130–160 WPM for clarity.',
+                    howToFix: ['Speak at 130–150 WPM using a metronome', 'Take 1-second deliberate pauses before answering', '3 deep breaths before each mock session'],
+                    whatToImprove: 'Pacing spikes to 180+ WPM in high-pressure moments. Practice controlled breathing.'
+                },
+                {
+                    id: 5, title: 'Confidence Signals', icon: 'shield-check', priority: 'Medium', progress: 70, color: 'teal',
+                    whyMatters: 'Upward inflections make statements sound like questions, projecting uncertainty and reducing authority.',
+                    howToFix: ['Record yourself and audit for question-tone endings', 'Practice power posing 2 mins pre-interview', 'Affirmation journaling each morning'],
+                    whatToImprove: 'Upward inflections detected in 60% of technical answers. Turn statements into declarations.'
+                },
+            ];
+
+            const practiceplan = [
+                { task: 'Answer in STAR format', reason: 'Improves clarity and reduces cognitive load on interviewer', done: false, day: 'Mon' },
+                { task: 'Record 5-min answer, count fillers', reason: 'Creates awareness → behavioural change loop', done: true, day: 'Tue' },
+                { task: 'System Design: Design Twitter', reason: 'Builds technical depth for architecture questions', done: false, day: 'Wed' },
+                { task: 'Speed read 1 technical article', reason: 'Broadens vocabulary, reduces filler dependency', done: true, day: 'Thu' },
+                { task: 'Mock interview with a friend', reason: 'Simulates real pressure and improves delivery', done: false, day: 'Fri' },
+            ];
+
+            const challenges = [
+                { id: 1, goal: 'Speak 1 min without any filler words', why: 'Improves fluency and confidence perception', xp: 50, icon: 'mic', color: 'text-red-500 bg-red-50' },
+                { id: 2, goal: 'Answer 3 questions using STAR structure', why: 'Builds mental framework for structured thinking', xp: 75, icon: 'target', color: 'text-brand-600 bg-brand-50' },
+                { id: 3, goal: 'Maintain 130–160 WPM for full mock session', why: 'Trains optimal speaking speed under pressure', xp: 100, icon: 'activity', color: 'text-teal-600 bg-teal-50' },
+                { id: 4, goal: 'Pause 1 second before each answer', why: 'Signals thoughtfulness, reduces impulsive replies', xp: 60, icon: 'pause-circle', color: 'text-purple-600 bg-purple-50' },
+            ];
+
+            const roadmapStages = [
+                { stage: '1', label: 'Remove Filler Words', icon: 'mic-off', status: 'active', desc: 'Daily recording practice + filler counter app' },
+                { stage: '2', label: 'Improve Clarity', icon: 'message-square', status: 'upcoming', desc: 'STAR method mastery + structured answers' },
+                { stage: '3', label: 'Master Delivery', icon: 'zap', status: 'upcoming', desc: 'Pacing control + confident tone + power pauses' },
+                { stage: '4', label: 'Land the Offer', icon: 'star', status: 'upcoming', desc: 'Mock interviews + job-fit alignment' },
+            ];
+
+            const priorityColor = { Critical: 'bg-red-100 text-red-700', High: 'bg-orange-100 text-orange-700', Medium: 'bg-amber-100 text-amber-700' };
+            const barColor = { red: 'bg-red-400', orange: 'bg-orange-400', amber: 'bg-amber-400', brand: 'bg-brand-500', teal: 'bg-accent-teal' };
+            const iconColor = (c) => c === 'red' ? 'bg-red-50 text-red-500' : c === 'orange' ? 'bg-orange-50 text-orange-500' : c === 'amber' ? 'bg-amber-50 text-amber-600' : c === 'brand' ? 'bg-brand-50 text-brand-600' : 'bg-teal-50 text-teal-600';
+
+            const totalXP = Object.keys(completedChallenges).reduce((sum, k) => sum + (completedChallenges[k] ? challenges.find(c => c.id === parseInt(k))?.xp || 0 : 0), 0);
+
+            return (
+                <div className="p-8 lg:p-10 max-w-7xl mx-auto w-full animate-fade-in pb-20">
+
+                    {/* ── TOP HEADER ── */}
+                    <div className="mb-8">
+                        <div className="flex items-start justify-between flex-wrap gap-4">
+                            <div>
+                                <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-brand-700 to-accent-purple tracking-tight">Level Up ⚡</h2>
+                                <p className="text-slate-500 mt-1 font-medium">AI-powered roadmap to improve your interview performance</p>
+                                <div className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-brand-50 to-purple-50 border border-brand-100 rounded-xl text-xs font-semibold text-brand-700">
+                                    <Icon name="sparkles" size={13} /> Data-driven improvement beats guesswork
+                                </div>
+                            </div>
+                            {/* View Toggle */}
+                            <div className="flex bg-slate-100 rounded-xl p-1 gap-1 self-start">
+                                {['data', 'theory'].map(v => (
+                                    <button key={v} onClick={() => setActiveView(v)}
+                                        className={`px-4 py-2 rounded-lg text-xs font-bold capitalize transition-all ${activeView === v ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                                        {v === 'data' ? '📊 Data View' : '📖 Theory View'}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ── SECTION 1: SKILL LEVEL + RADAR ── */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                        {/* Level Card */}
+                        <motion.div whileHover={{ y: -4 }} className="glass-card p-6 flex flex-col gap-4 border border-brand-100 bg-gradient-to-br from-white to-brand-50/40">
+                            <div className="flex items-center gap-3 mb-1">
+                                <div className="p-2 bg-brand-100 rounded-lg text-brand-600"><Icon name="zap" size={18} /></div>
+                                <h3 className="font-semibold text-slate-800 text-lg tracking-tight">🎯 Skill Level</h3>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand-400 to-accent-purple flex items-center justify-center text-white font-black text-xl shadow-lg">B+</div>
+                                <div>
+                                    <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">Current Level</p>
+                                    <p className="text-2xl font-black text-slate-800">Intermediate</p>
+                                    <p className="text-xs text-brand-600 font-semibold">28 XP to Advanced</p>
+                                </div>
+                            </div>
+                            <div>
+                                <div className="flex justify-between text-xs font-bold text-slate-600 mb-1">
+                                    <span>Progress to Advanced</span><span>72%</span>
+                                </div>
+                                <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                                    <motion.div initial={{ width: 0 }} animate={{ width: '72%' }} transition={{ duration: 1.5, ease: 'easeOut' }}
+                                        className="h-full rounded-full bg-gradient-to-r from-brand-500 to-accent-purple" />
+                                </div>
+                            </div>
+                            {activeView === 'theory' && (
+                                <div className="mt-2 p-3 bg-brand-50 rounded-xl border border-brand-100 text-xs text-brand-700 font-medium leading-relaxed">
+                                    💡 Strong interview performance depends on 4 pillars: <strong>Clarity, Confidence, Structure,</strong> and <strong>Delivery</strong>. Mastering each elevates your overall impression.
+                                </div>
+                            )}
+                        </motion.div>
+
+                        {/* Radar Chart */}
+                        <motion.div whileHover={{ y: -4 }} className="glass-card p-6 flex flex-col col-span-1 md:col-span-1 lg:col-span-2">
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="p-2 bg-purple-100 rounded-lg text-purple-600"><Icon name="crosshair" size={18} /></div>
+                                <h3 className="font-semibold text-slate-800 text-lg">4 Pillars Radar</h3>
+                            </div>
+                            <div className="flex flex-col sm:flex-row items-center gap-6 justify-center flex-1">
+                                <SkillRadarChart data={radarData} />
+                                <div className="flex flex-col gap-3">
+                                    {radarData.map((d, i) => (
+                                        <div key={i} className="flex items-center gap-3">
+                                            <div className="w-2 h-2 rounded-full" style={{ background: ['#0ea5e9', '#8b5cf6', '#14b8a6', '#f59e0b'][i] }} />
+                                            <div className="flex-1">
+                                                <div className="flex justify-between text-xs font-bold mb-1">
+                                                    <span className="text-slate-700">{d.label}</span>
+                                                    <span className="text-slate-500">{d.value}%</span>
+                                                </div>
+                                                <div className="h-1.5 bg-slate-100 rounded-full w-32 overflow-hidden">
+                                                    <motion.div initial={{ width: 0 }} animate={{ width: `${d.value}%` }} transition={{ duration: 1, delay: i * 0.15 }}
+                                                        className="h-full rounded-full" style={{ background: ['#0ea5e9', '#8b5cf6', '#14b8a6', '#f59e0b'][i] }} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {activeView === 'theory' && (
+                                        <div className="mt-2 p-3 bg-purple-50 rounded-xl border border-purple-100 text-xs text-purple-700 font-medium leading-relaxed max-w-[200px]">
+                                            Confidence gap is your #1 priority — it amplifies all other skills.
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </motion.div>
+                    </div>
+
+                    {/* ── SECTION 2: AI ACTION PLAN (HERO) ── */}
+                    <div className="glass-card mb-8 overflow-hidden border-2 border-brand-200/50 shadow-[0_20px_50px_rgba(14,165,233,0.12)]">
+                        <div className="bg-gradient-to-r from-brand-600 to-accent-purple p-6 text-white relative overflow-hidden">
+                            <div className="relative z-10">
+                                <h3 className="text-xl font-bold flex items-center gap-2"><Icon name="brain" size={20} /> 🧠 AI Action Plan</h3>
+                                <p className="text-white/80 text-sm mt-1 font-medium">Ranked by impact — click to expand each item</p>
+                            </div>
+                            <div className="absolute top-0 right-0 w-48 h-48 bg-white/10 rounded-full blur-3xl -mr-10 -mt-10" />
+                            <div className="absolute bottom-0 right-32 w-32 h-32 bg-teal-300/20 rounded-full blur-2xl" />
+                        </div>
+                        <div className="p-6 flex flex-col gap-4">
+                            {steps.map((step, idx) => (
+                                <motion.div key={step.id} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.07 }}
+                                    className="border border-slate-200 rounded-2xl overflow-hidden bg-white/60">
+                                    <button className="w-full p-4 flex items-center gap-4 text-left hover:bg-slate-50/80 transition-colors"
+                                        onClick={() => setExpandedPlan(expandedPlan === step.id ? null : step.id)}>
+                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${iconColor(step.color)}`}>
+                                            <Icon name={step.icon} size={18} />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                                                <h4 className="font-bold text-slate-800 text-sm">{step.title}</h4>
+                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${priorityColor[step.priority]}`}>{step.priority}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                                    <motion.div initial={{ width: 0 }} animate={{ width: `${step.progress}%` }} transition={{ duration: 1, delay: idx * 0.1 }}
+                                                        className={`h-full rounded-full ${barColor[step.color]}`} />
+                                                </div>
+                                                <span className="text-xs font-bold text-slate-500 shrink-0">{step.progress}%</span>
+                                            </div>
+                                        </div>
+                                        <Icon name={expandedPlan === step.id ? 'chevron-up' : 'chevron-down'} size={16} className="text-slate-400 shrink-0" />
+                                    </button>
+
+                                    {expandedPlan === step.id && (
+                                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="border-t border-slate-100 bg-slate-50/60">
+                                            {/* Sub-section toggles */}
+                                            {[['what', '🎯 What to Improve', step.whatToImprove], ['why', '💡 Why It Matters', step.whyMatters]].map(([key, label, content]) => (
+                                                <div key={key} className="border-b border-slate-100 last:border-b-0">
+                                                    <button className="w-full px-5 py-3 flex items-center justify-between text-xs font-bold text-slate-700 hover:bg-white/60 transition-colors"
+                                                        onClick={() => toggleSection(step.id, key)}>
+                                                        {label}
+                                                        <Icon name={expandedSection[`${step.id}-${key}`] ? 'minus' : 'plus'} size={14} className="text-slate-400" />
+                                                    </button>
+                                                    {expandedSection[`${step.id}-${key}`] && (
+                                                        <div className="px-5 pb-4 text-sm text-slate-600 font-medium leading-relaxed">{content}</div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                            <div className="border-b border-slate-100">
+                                                <button className="w-full px-5 py-3 flex items-center justify-between text-xs font-bold text-slate-700 hover:bg-white/60 transition-colors"
+                                                    onClick={() => toggleSection(step.id, 'how')}>
+                                                    🛠️ How to Fix
+                                                    <Icon name={expandedSection[`${step.id}-how`] ? 'minus' : 'plus'} size={14} className="text-slate-400" />
+                                                </button>
+                                                {expandedSection[`${step.id}-how`] && (
+                                                    <div className="px-5 pb-4 flex flex-col gap-2">
+                                                        {step.howToFix.map((a, i) => (
+                                                            <div key={i} className="flex items-start gap-3">
+                                                                <div className="w-5 h-5 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">{i + 1}</div>
+                                                                <p className="text-sm text-slate-600 font-medium">{a}</p>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </motion.div>
+                                    )}
+                                </motion.div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* ── SECTIONS 3 & 4: GAP ANALYSIS + PACING ── */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+
+                        {/* Section 3: Performance Gap Analysis */}
+                        <motion.div whileHover={{ y: -4 }} className="glass-card p-6">
+                            <div className="flex items-center gap-3 mb-1">
+                                <div className="p-2 bg-brand-100 rounded-lg text-brand-600"><Icon name="bar-chart-2" size={18} /></div>
+                                <h3 className="font-semibold text-slate-800 text-lg">📊 Performance Gap Analysis</h3>
+                            </div>
+                            <p className="text-xs text-slate-500 font-medium mb-4">Your score vs. industry benchmark</p>
+                            <div className="h-[220px] w-full">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={gapData} margin={{ top: 5, right: 10, left: -15, bottom: 0 }} barGap={4}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                        <XAxis dataKey="metric" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10, fontWeight: 600 }} dy={8} />
+                                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} domain={[0, 100]} />
+                                        <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', fontSize: '12px' }}
+                                            formatter={(v, n) => [v + '%', n === 'you' ? 'Your Score' : 'Industry Ideal']} />
+                                        <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '12px' }} iconType="circle"
+                                            formatter={(v) => v === 'you' ? 'Your Score' : 'Industry Ideal'} />
+                                        <Bar dataKey="you" name="you" fill="#0ea5e9" radius={[4, 4, 0, 0]} barSize={20} animationDuration={1500} />
+                                        <Bar dataKey="ideal" name="ideal" fill="#e2e8f0" radius={[4, 4, 0, 0]} barSize={20} animationDuration={1500} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                            {activeView === 'theory' && (
+                                <div className="mt-3 grid grid-cols-2 gap-2">
+                                    {gapData.map((d, i) => (
+                                        <div key={i} className="bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+                                            <p className="text-[10px] font-bold text-red-600 uppercase">{d.metric}</p>
+                                            <p className="text-xs text-red-700 font-semibold">Gap: {d.ideal - d.you}pts to industry standard</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </motion.div>
+
+                        {/* Section 4: Communication Theory — Pacing */}
+                        <motion.div whileHover={{ y: -4 }} className="glass-card p-6">
+                            <div className="flex items-center gap-3 mb-1">
+                                <div className="p-2 bg-teal-100 rounded-lg text-teal-600"><Icon name="mic" size={18} /></div>
+                                <h3 className="font-semibold text-slate-800 text-lg">🗣️ Communication Insights</h3>
+                            </div>
+                            <p className="text-xs text-slate-500 font-medium mb-3">Your speaking pace vs ideal range (120–160 WPM)</p>
+                            <div className="h-[200px] w-full">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <LineChart data={pacingData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                                        <defs>
+                                            <linearGradient id="pacingGrad" x1="0" y1="0" x2="1" y2="0">
+                                                <stop offset="0%" stopColor="#14b8a6" />
+                                                <stop offset="100%" stopColor="#0ea5e9" />
+                                            </linearGradient>
+                                        </defs>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                        <XAxis dataKey="session" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
+                                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} domain={[60, 200]} />
+                                        <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', fontSize: '12px' }}
+                                            formatter={(v, n) => n === 'pace' ? [v + ' WPM', 'Your Pace'] : [v + ' WPM', n]} />
+                                        <ReferenceArea y1={120} y2={160} fill="#14b8a6" fillOpacity={0.08} />
+                                        <Line type="monotone" dataKey="pace" name="pace" stroke="url(#pacingGrad)" strokeWidth={3} dot={{ r: 4, fill: '#0ea5e9', stroke: '#fff', strokeWidth: 2 }} animationDuration={1800} />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            </div>
+                            <div className="mt-3 grid grid-cols-3 gap-2">
+                                {[['120–160 WPM', 'Ideal range for clarity', 'text-teal-700 bg-teal-50 border-teal-100'],
+                                ['Natural pause', 'Before complex answers', 'text-brand-700 bg-brand-50 border-brand-100'],
+                                ['Tone variation', 'Emphasizes key points', 'text-purple-700 bg-purple-50 border-purple-100']
+                                ].map(([title, desc, cls], i) => (
+                                    <div key={i} className={`rounded-xl px-3 py-2 border ${cls}`}>
+                                        <p className="text-[10px] font-bold uppercase">{title}</p>
+                                        <p className="text-[10px] font-medium mt-0.5 leading-tight">{desc}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </motion.div>
+                    </div>
+
+                    {/* ── SECTIONS 5 & 6: PAUSE + FILLER ── */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+
+                        {/* Section 5: Pause Analysis */}
+                        <motion.div whileHover={{ y: -4 }} className="glass-card p-6">
+                            <div className="flex items-center gap-3 mb-1">
+                                <div className="p-2 bg-red-100 rounded-lg text-red-500"><Icon name="pause-circle" size={18} /></div>
+                                <h3 className="font-semibold text-slate-800 text-lg">⏱️ Cognitive Load & Pauses</h3>
+                            </div>
+                            <p className="text-xs text-slate-500 font-medium mb-3">Pause type distribution in latest session</p>
+                            <div className="flex flex-col sm:flex-row items-center gap-6">
+                                <div className="h-[170px] w-[170px] shrink-0">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <PieChart>
+                                            <Pie data={pauseData} cx="50%" cy="50%" innerRadius={48} outerRadius={72}
+                                                paddingAngle={4} dataKey="value" cornerRadius={6} stroke="none" animationDuration={1500}>
+                                                {pauseData.map((d, i) => <Cell key={i} fill={d.fill} style={{ filter: `drop-shadow(0 4px 6px ${d.fill}40)` }} />)}
+                                            </Pie>
+                                            <Tooltip contentStyle={{ borderRadius: '10px', border: 'none', fontSize: '12px' }} />
+                                        </PieChart>
+                                    </ResponsiveContainer>
+                                </div>
+                                <div className="flex flex-col gap-3 flex-1">
+                                    {pauseData.map((d, i) => (
+                                        <div key={i} className="flex items-center gap-3">
+                                            <div className="w-3 h-3 rounded-full shrink-0" style={{ background: d.fill }} />
+                                            <div className="flex-1">
+                                                <div className="flex justify-between text-xs font-bold">
+                                                    <span className="text-slate-700">{d.name} Pauses</span>
+                                                    <span className="text-slate-500">{d.value}</span>
+                                                </div>
+                                                <div className="h-1.5 bg-slate-100 rounded-full mt-1 overflow-hidden">
+                                                    <motion.div initial={{ width: 0 }} animate={{ width: `${(d.value / 28) * 100}%` }} transition={{ duration: 1, delay: i * 0.2 }}
+                                                        className="h-full rounded-full" style={{ background: d.fill }} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {activeView === 'theory' && (
+                                        <div className="mt-1 p-3 bg-red-50 rounded-xl border border-red-100 text-xs text-red-700 font-medium leading-relaxed">
+                                            Frequent awkward pauses indicate lack of structured thinking. Target &lt;3 per session.
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </motion.div>
+
+                        {/* Section 6: Filler Words Impact */}
+                        <motion.div whileHover={{ y: -4 }} className="glass-card p-6">
+                            <div className="flex items-center gap-3 mb-1">
+                                <div className="p-2 bg-orange-100 rounded-lg text-orange-500"><Icon name="trending-down" size={18} /></div>
+                                <h3 className="font-semibold text-slate-800 text-lg">📉 Filler Words Trend</h3>
+                            </div>
+                            <div className="flex items-center gap-3 mb-3">
+                                <p className="text-xs text-slate-500 font-medium">Frequency over sessions</p>
+                                <div className="ml-auto bg-emerald-50 text-emerald-600 font-bold px-3 py-1 rounded-full text-xs border border-emerald-200">-78% 🎉</div>
+                            </div>
+                            <div className="h-[180px] w-full">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <AreaChart data={fillerTrendData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                                        <defs>
+                                            <linearGradient id="fillerGrad" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#f97316" stopOpacity={0.5} />
+                                                <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                                            </linearGradient>
+                                        </defs>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                        <XAxis dataKey="session" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
+                                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
+                                        <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', fontSize: '12px' }}
+                                            formatter={v => [v + ' fillers', 'Count']} />
+                                        <Area type="monotone" dataKey="fillers" name="Filler Count" stroke="#f97316" strokeWidth={3}
+                                            fillOpacity={1} fill="url(#fillerGrad)" animationDuration={2000} />
+                                    </AreaChart>
+                                </ResponsiveContainer>
+                            </div>
+                            {activeView === 'theory' && (
+                                <div className="mt-3 p-3 bg-orange-50 rounded-xl border border-orange-100 text-xs text-orange-700 font-medium leading-relaxed">
+                                    High filler usage (um, uh, like) reduces clarity and authority. Research shows it lowers perceived competence by up to 25%.
+                                </div>
+                            )}
+                        </motion.div>
+                    </div>
+
+                    {/* ── SECTIONS 7 & 8: PRACTICE PLAN + CHALLENGES ── */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+
+                        {/* Section 7: Smart Practice Plan */}
+                        <motion.div whileHover={{ y: -4 }} className="glass-card p-6">
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="p-2 bg-teal-100 rounded-lg text-teal-600"><Icon name="calendar" size={18} /></div>
+                                <h3 className="font-semibold text-slate-800 text-lg">📅 Smart Practice Plan</h3>
+                            </div>
+                            <div className="flex flex-col gap-3">
+                                {practiceplan.map((task, i) => (
+                                    <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.07 }}
+                                        className={`p-3 rounded-xl border transition-all cursor-pointer ${completedTasks[i] ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200 hover:border-brand-200'
+                                            }`}
+                                        onClick={() => setCompletedTasks(p => ({ ...p, [i]: !p[i] }))}>
+                                        <div className="flex items-start gap-3">
+                                            <div className={`w-5 h-5 rounded-full shrink-0 mt-0.5 flex items-center justify-center border-2 transition-all ${completedTasks[i] ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300'
+                                                }`}>
+                                                {completedTasks[i] && <Icon name="check" size={12} />}
+                                            </div>
+                                            <div className="flex-1">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <p className={`text-sm font-bold ${completedTasks[i] ? 'line-through text-slate-400' : 'text-slate-800'}`}>{task.task}</p>
+                                                    <span className="text-[10px] font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full border border-brand-100 shrink-0">{task.day}</span>
+                                                </div>
+                                                <p className="text-xs text-slate-500 font-medium mt-0.5 leading-relaxed">{task.reason}</p>
+                                            </div>
+                                        </div>
+                                    </motion.div>
+                                ))}
+                            </div>
+                            <div className="mt-4 flex items-center gap-3">
+                                <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                    <motion.div animate={{ width: `${(Object.values(completedTasks).filter(Boolean).length / practiceplan.length) * 100}%` }}
+                                        transition={{ duration: 0.5 }} className="h-full bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full" />
+                                </div>
+                                <span className="text-xs font-bold text-slate-600">
+                                    {Object.values(completedTasks).filter(Boolean).length}/{practiceplan.length} done
+                                </span>
+                            </div>
+                        </motion.div>
+
+                        {/* Section 8: Skill Challenges */}
+                        <motion.div whileHover={{ y: -4 }} className="glass-card p-6">
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-purple-100 rounded-lg text-purple-600"><Icon name="gamepad-2" size={18} /></div>
+                                    <h3 className="font-semibold text-slate-800 text-lg">🎮 Skill Challenges</h3>
+                                </div>
+                                <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl">
+                                    <span className="text-amber-500 text-base">⚡</span>
+                                    <span className="text-xs font-black text-amber-700">{totalXP} XP</span>
+                                </div>
+                            </div>
+                            <div className="flex flex-col gap-3">
+                                {challenges.map((c, i) => (
+                                    <motion.div key={c.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}
+                                        className={`p-4 rounded-2xl border transition-all ${completedChallenges[c.id] ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200 hover:border-brand-200 hover:shadow-sm'
+                                            }`}>
+                                        <div className="flex items-start gap-3">
+                                            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${c.color}`}>
+                                                <Icon name={c.icon} size={16} />
+                                            </div>
+                                            <div className="flex-1">
+                                                <p className={`text-sm font-bold ${completedChallenges[c.id] ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{c.goal}</p>
+                                                <p className="text-xs text-slate-500 font-medium mt-0.5 leading-relaxed">{c.why}</p>
+                                            </div>
+                                            <div className="flex flex-col items-end gap-1.5 shrink-0">
+                                                <span className="text-[10px] font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">+{c.xp} XP</span>
+                                                <button onClick={() => setCompletedChallenges(p => ({ ...p, [c.id]: !p[c.id] }))}
+                                                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${completedChallenges[c.id] ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 hover:border-brand-400'
+                                                        }`}>
+                                                    {completedChallenges[c.id] && <Icon name="check" size={12} />}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </motion.div>
+                                ))}
+                            </div>
+                        </motion.div>
+                    </div>
+
+                    {/* ── SECTION 9: IMPROVEMENT ROADMAP ── */}
+                    <motion.div whileHover={{ y: -4 }} className="glass-card p-6 mb-8 border border-brand-100">
+                        <div className="flex items-center gap-3 mb-6">
+                            <div className="p-2 bg-brand-100 rounded-lg text-brand-600"><Icon name="map" size={18} /></div>
+                            <h3 className="font-semibold text-slate-800 text-lg">📈 Improvement Roadmap</h3>
+                        </div>
+                        <div className="relative">
+                            {/* Connecting line */}
+                            <div className="absolute top-5 left-5 right-5 h-0.5 bg-gradient-to-r from-brand-300 via-purple-300 to-slate-200 hidden sm:block" />
+                            <div className="grid grid-cols-1 sm:grid-cols-4 gap-6">
+                                {roadmapStages.map((s, i) => (
+                                    <div key={i} className="flex flex-col items-center text-center gap-3 relative">
+                                        <motion.div
+                                            initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: i * 0.15 }}
+                                            className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm border-2 z-10 shadow-md transition-all ${s.status === 'active'
+                                                    ? 'bg-gradient-to-br from-brand-500 to-accent-purple border-brand-400 text-white shadow-brand-200'
+                                                    : 'bg-white border-slate-300 text-slate-400'
+                                                }`}>
+                                            {s.status === 'active' ? <Icon name={s.icon} size={16} /> : <span className="text-xs">{s.stage}</span>}
+                                        </motion.div>
+                                        <div>
+                                            <p className={`text-xs font-bold ${s.status === 'active' ? 'text-brand-700' : 'text-slate-500'}`}>
+                                                Stage {s.stage}: {s.label}
+                                            </p>
+                                            <p className="text-[10px] text-slate-400 font-medium mt-1 leading-tight">{s.desc}</p>
+                                        </div>
+                                        {s.status === 'active' && (
+                                            <span className="text-[9px] font-black bg-brand-100 text-brand-700 px-2 py-0.5 rounded-full border border-brand-200">IN PROGRESS</span>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </motion.div>
+
+                    {/* ── SECTION 10: AI FEEDBACK EVOLUTION ── */}
+                    <motion.div whileHover={{ y: -4 }} className="glass-card p-6 border border-purple-100">
+                        <div className="flex items-center gap-3 mb-6">
+                            <div className="p-2 bg-purple-100 rounded-lg text-purple-600"><Icon name="bot" size={18} /></div>
+                            <h3 className="font-semibold text-slate-800 text-lg">🤖 AI Feedback Evolution</h3>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {[
+                                {
+                                    label: 'Before', date: 'Session 1 — Oct 2025', badge: 'bg-red-100 text-red-600',
+                                    feedback: '"You used 42 filler words across 20 minutes. Upward inflections reduced authority. Frequent awkward pauses (8) signal unstructured thinking."',
+                                    stats: [{ name: 'Filler Words', val: 42, color: 'bg-red-400' }, { name: 'Awkward Pauses', val: 8, color: 'bg-red-300' }]
+                                },
+                                {
+                                    label: 'After', date: 'Session 5 — Apr 2026', badge: 'bg-emerald-100 text-emerald-600',
+                                    feedback: '"Only 9 filler words detected. Awkward pauses reduced to 5. Speaking pace now within optimal 130–155 WPM range. Excellent improvement!"',
+                                    stats: [{ name: 'Filler Words', val: 9, color: 'bg-emerald-400' }, { name: 'Awkward Pauses', val: 5, color: 'bg-emerald-300' }]
+                                }
+                            ].map((item, i) => (
+                                <motion.div key={i} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.2 }}
+                                    className={`rounded-2xl border p-5 ${i === 0 ? 'border-red-100 bg-red-50/40' : 'border-emerald-100 bg-emerald-50/40'}`}>
+                                    <div className="flex items-center justify-between mb-3">
+                                        <span className={`text-xs font-black px-3 py-1 rounded-full ${item.badge}`}>{item.label}</span>
+                                        <span className="text-[10px] font-medium text-slate-400">{item.date}</span>
+                                    </div>
+                                    <p className="text-sm text-slate-600 font-medium leading-relaxed italic mb-4">{item.feedback}</p>
+                                    <div className="flex flex-col gap-2">
+                                        {item.stats.map((s, j) => (
+                                            <div key={j}>
+                                                <div className="flex justify-between text-xs font-bold mb-1">
+                                                    <span className="text-slate-700">{s.name}</span>
+                                                    <span className="text-slate-500">{s.val}</span>
+                                                </div>
+                                                <div className="h-1.5 bg-white rounded-full overflow-hidden">
+                                                    <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(s.val * 2, 100)}%` }} transition={{ duration: 1, delay: j * 0.2 }}
+                                                        className={`h-full rounded-full ${s.color}`} />
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    {activeView === 'theory' && i === 1 && (
+                                        <div className="mt-3 p-3 bg-white rounded-xl border border-emerald-100 text-xs text-emerald-700 font-medium leading-relaxed">
+                                            Reduction in pauses indicates improved thought structuring. Consistent practice conditions new neural pathways for fluent speech.
+                                        </div>
+                                    )}
+                                </motion.div>
+                            ))}
+                        </div>
+                    </motion.div>
+
+                </div>
+            );
+        };
+
+        // --- PROFILE VIEW ---
+        const ProfileView = () => {
+            const [editMode, setEditMode] = useState(false);
+            const stats = [
+                { label: 'Interviews Taken', value: '14', icon: 'video', color: 'brand' },
+                { label: 'Avg Score', value: '71%', icon: 'bar-chart-2', color: 'purple' },
+                { label: 'Best Score', value: '88%', icon: 'trophy', color: 'amber' },
+                { label: 'Hours Practiced', value: '9.5h', icon: 'clock', color: 'teal' },
+            ];
+            const notifications = [
+                { label: 'Weekly Progress Report', desc: 'Receive an AI summary every Monday', on: true },
+                { label: 'Session Reminders', desc: 'Remind me to practice daily', on: false },
+                { label: 'New Feature Updates', desc: 'Get notified about new Hirelytics features', on: true },
+            ];
+            const [notifState, setNotifState] = useState(notifications.map(n => n.on));
+
+            return (
+                <div className="p-8 lg:p-10 max-w-5xl mx-auto w-full animate-fade-in">
+                    <div className="mb-8">
+                        <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Your Profile</h2>
+                        <p className="text-slate-500 mt-1 font-medium">Manage your account and preferences</p>
+                    </div>
+
+                    {/* Profile Card */}
+                    <div className="glass-card p-6 flex flex-col sm:flex-row items-start sm:items-center gap-6 mb-6 border-2 border-brand-100/50">
+                        <div className="relative shrink-0">
+                            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-brand-400 to-accent-purple flex items-center justify-center text-white text-3xl font-black shadow-lg select-none">AJ</div>
+                            <button className="absolute -bottom-2 -right-2 w-7 h-7 bg-white rounded-lg shadow-md border border-slate-200 flex items-center justify-center text-brand-600 hover:bg-brand-50 transition-colors">
+                                <Icon name="camera" size={13} />
+                            </button>
+                        </div>
+                        <div className="flex-1">
+                            <h3 className="text-xl font-bold text-slate-800">Alex Johnson</h3>
+                            <p className="text-slate-500 text-sm font-medium">Frontend Developer · alex.johnson@email.com</p>
+                            <div className="flex gap-2 mt-3 flex-wrap">
+                                <span className="text-[11px] font-bold bg-brand-100 text-brand-700 px-3 py-1 rounded-full">Frontend</span>
+                                <span className="text-[11px] font-bold bg-purple-100 text-purple-700 px-3 py-1 rounded-full">React</span>
+                                <span className="text-[11px] font-bold bg-teal-100 text-teal-700 px-3 py-1 rounded-full">Node.js</span>
+                            </div>
+                        </div>
+                        <button onClick={() => setEditMode(!editMode)} className="px-4 py-2 border border-brand-300 text-brand-700 font-bold rounded-xl hover:bg-brand-50 transition-colors text-sm flex items-center gap-2">
+                            <Icon name="edit-3" size={15} />{editMode ? 'Cancel' : 'Edit Profile'}
+                        </button>
+                    </div>
+
+                    {/* Stats */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        {stats.map((s, i) => (
+                            <motion.div key={i} whileHover={{ y: -3 }} className="glass-card p-4 flex items-center gap-3">
+                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${s.color === 'brand' ? 'bg-brand-50 text-brand-600' : s.color === 'purple' ? 'bg-purple-50 text-purple-600' : s.color === 'amber' ? 'bg-amber-50 text-amber-600' : 'bg-teal-50 text-teal-600'}`}>
+                                    <Icon name={s.icon} size={18} />
+                                </div>
+                                <div>
+                                    <p className="text-lg font-black text-slate-800">{s.value}</p>
+                                    <p className="text-[11px] text-slate-500 font-medium">{s.label}</p>
+                                </div>
+                            </motion.div>
+                        ))}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Account Info */}
+                        <div className="glass-card p-6">
+                            <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Icon name="user" size={16} className="text-brand-600" />Account Information</h4>
+                            <div className="flex flex-col gap-4">
+                                {[['Full Name', 'Alex Johnson'], ['Email', 'alex.johnson@email.com'], ['Role', 'Frontend Developer'], ['Experience', '3 Years']].map(([label, val]) => (
+                                    <div key={label}>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">{label}</label>
+                                        {editMode
+                                            ? <input defaultValue={val} className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-brand-500 focus:ring-1 focus:ring-brand-200 outline-none text-sm font-medium text-slate-700 bg-white/70" />
+                                            : <p className="text-sm font-semibold text-slate-700">{val}</p>
+                                        }
+                                    </div>
+                                ))}
+                                {editMode && <button className="mt-1 py-2 bg-gradient-to-r from-brand-500 to-accent-teal text-white rounded-xl font-bold text-sm">Save Changes</button>}
+                            </div>
+                        </div>
+
+                        {/* Notifications */}
+                        <div className="glass-card p-6">
+                            <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Icon name="bell" size={16} className="text-brand-600" />Notifications</h4>
+                            <div className="flex flex-col gap-4">
+                                {notifications.map((n, i) => (
+                                    <div key={i} className="flex items-center justify-between gap-4">
+                                        <div>
+                                            <p className="text-sm font-bold text-slate-700">{n.label}</p>
+                                            <p className="text-xs text-slate-500 font-medium">{n.desc}</p>
+                                        </div>
+                                        <button onClick={() => setNotifState(s => s.map((v, idx) => idx === i ? !v : v))}
+                                            className={`w-11 h-6 rounded-full transition-colors shrink-0 relative ${notifState[i] ? 'bg-brand-500' : 'bg-slate-300'}`}>
+                                            <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${notifState[i] ? 'translate-x-5' : 'translate-x-0.5'}`}></span>
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="border-t border-slate-100 mt-5 pt-5">
+                                <h4 className="font-bold text-slate-800 mb-3 flex items-center gap-2"><Icon name="shield" size={16} className="text-brand-600" />Subscription</h4>
+                                <div className="flex items-center justify-between bg-gradient-to-r from-brand-50 to-purple-50 rounded-xl p-3 border border-brand-100">
+                                    <div>
+                                        <p className="font-bold text-slate-800 text-sm">Free Plan</p>
+                                        <p className="text-xs text-slate-500 font-medium">5 uploads / month · Basic AI</p>
+                                    </div>
+                                    <button className="text-xs font-bold text-white bg-gradient-to-r from-brand-500 to-accent-purple px-3 py-1.5 rounded-lg shadow-sm">Upgrade</button>
+                                </div>
+                            </div>
+
+                            <div className="border-t border-slate-100 mt-5 pt-5">
+                                <button className="flex items-center gap-2 text-sm font-bold text-red-500 hover:text-red-700 transition-colors">
+                                    <Icon name="trash-2" size={15} />Delete Account
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- MAIN APP COMPONENT ---
+        const App = () => {
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [currentView, setCurrentView] = useState('login');
+            const [selectedIssue, setSelectedIssue] = useState(null);
+
+            const handleTabChange = (tabId) => {
+                setActiveTab(tabId);
+                setCurrentView(tabId);
+            };
+
+            const handleLogin = () => {
+                setCurrentView('upload');
+                setActiveTab('dashboard');
+            };
+
+            const handleLogout = () => {
+                setCurrentView('login');
+                setActiveTab('dashboard');
+            };
+
+            if (currentView === 'login') {
+                return <LoginView onLogin={handleLogin} />;
+            }
+
+            return (
+                <div className="flex min-h-screen">
+                    <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} onLogout={handleLogout} />
+
+                    <main className="flex-1 ml-64 flex flex-col transition-all">
+                        {currentView === 'upload' && (
+                            <UploadView onUpload={() => setCurrentView('dashboard')} />
+                        )}
+                        {currentView === 'progress' && (
+                            <ProgressView />
+                        )}
+                        {currentView === 'history' && (
+                            <HistoryView />
+                        )}
+                        {currentView === 'levelup' && (
+                            <LevelUpView />
+                        )}
+                        {currentView === 'profile' && (
+                            <ProfileView />
+                        )}
+                        {currentView === 'dashboard' && (
+                            <div className="p-8 lg:p-10 max-w-7xl mx-auto w-full animate-fade-in">
+                                <TopHeader onUploadClick={() => setCurrentView('upload')} />
+
+                                {/* Main Grid Layout */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+
+                                    <Card title="Timeline Issues" icon="clock">
+                                        <TimestampIssues onSelectIssue={setSelectedIssue} selectedIssue={selectedIssue} />
+                                    </Card>
+
+                                    <Card title="Selection Probability" icon="target">
+                                        <SelectionPieChart />
+                                    </Card>
+
+                                    <div className="flex flex-col gap-4">
+                                        <Card title="Pacing Trend" icon="trending-up" className="flex-1 min-h-0 !p-4 !pb-2">
+                                            <PacingTrendChart />
+                                        </Card>
+                                        <Card title="Pause Analysis" icon="pause-circle" className="flex-1 min-h-0 !p-4 !pb-2">
+                                            <PauseAnalysisChart />
+                                        </Card>
+                                    </div>
+
+                                    {/* Hero AI Component Spanning Full Width */}
+                                    <AIInsights selectedIssue={selectedIssue} />
+
+                                    <Card title="Top Weaknesses" icon="alert-circle">
+                                        <WeaknessesChart />
+                                    </Card>
+
+                                    <Card title="Energy Over Time" icon="activity">
+                                        <EnergyAreaChart />
+                                    </Card>
+
+                                    <div className="glass-card p-6 flex flex-col justify-center items-center text-center gap-4 col-span-1 md:col-span-2 lg:col-span-1">
+                                        <div className="drop-shadow-md animate-bounce py-2 select-none" style={{ fontSize: '56px' }}>
+                                            🌸
+                                        </div>
+                                        <h3 className="font-bold text-xl text-slate-800">You're Improving!</h3>
+                                        <p className="text-slate-500 text-sm">Filler words decreased by 15% since last session. Keep it up!</p>
+                                        <button onClick={() => { setCurrentView('history'); setActiveTab('history'); }} className="mt-2 text-brand-600 font-semibold text-sm flex items-center gap-1 hover:text-brand-800">
+                                            View detailed history <Icon name="arrow-right" size={16} />
+                                        </button>
+                                    </div>
+
+                                </div>
+                            </div>
+                        )}
+                    </main>
+                </div>
+            );
+        };
+
+        // Render App
+        const rootElement = document.getElementById('root');
+        const root = createRoot(rootElement);
+        root.render(<App />);
+
+    </script>
+</body>
+
+</html>
