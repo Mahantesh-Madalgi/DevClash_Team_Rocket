@@ -1,31 +1,8 @@
 import React, { useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import JDInput from "./JDInput";
-import { Line } from "react-chartjs-2";
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler
-} from "chart.js";
-import annotationPlugin from "chartjs-plugin-annotation";
-
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler,
-  annotationPlugin
-);
+import EnergyAnalytics from "./EnergyAnalytics";
+import InterviewTimeline from "./InterviewTimeline";
 
 // Supabase credentials (using environment variables)
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -124,76 +101,12 @@ export default function VideoUpload() {
     );
   };
   
-  const EnergyChart = ({ data, events }) => {
-
-    const chartData = {
-      labels: data.map(d => `${d.time}s`),
-      datasets: [
-        {
-          label: "Confidence Energy Score",
-          data: data.map(d => d.score),
-          borderColor: "rgba(138, 43, 226, 1)", 
-          backgroundColor: (context) => {
-            const ctx = context.chart.ctx;
-            const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-            gradient.addColorStop(0, "rgba(138, 43, 226, 0.4)");
-            gradient.addColorStop(1, "rgba(138, 43, 226, 0)");
-            return gradient;
-          },
-          fill: true,
-          cubicInterpolationMode: "monotone",
-          tension: 0.4,
-          pointRadius: data.map(d => (d.score >= 0.9 || d.score <= 0.1) ? 5 : 0),
-          pointBackgroundColor: "rgba(138, 43, 226, 1)",
-          pointHoverRadius: 7
-        }
-      ]
-    };
-
-    // Map unified events to chart annotations
-    const eventAnnotations = events.reduce((acc, ev, i) => {
-      // Find closest timeline X-value
-      if (!data || data.length === 0) return acc;
-      const closest = data.reduce((prev, curr) => Math.abs(curr.time - ev.timestamp) < Math.abs(prev.time - ev.timestamp) ? curr : prev);
-      acc[`event_${i}`] = {
-        type: 'point',
-        xValue: `${closest.time}s`,
-        yValue: closest.score,
-        backgroundColor: ev.type === 'positive' ? '#28a745' : '#dc3545',
-        radius: 8,
-        borderWidth: 2,
-        borderColor: '#fff',
-        click: function() {
-          if (videoRef.current) {
-             videoRef.current.currentTime = ev.timestamp;
-             videoRef.current.play().catch(e => console.log(e));
-          }
-          setActiveEvent(ev);
-        }
-      };
-      return acc;
-    }, {});
-
-    const options = {
-      responsive: true,
-      plugins: {
-        legend: { position: "top" },
-        title: { display: true, text: "Biometric & Semantic AI Timeline" },
-        annotation: {
-          annotations: eventAnnotations
-        }
-      },
-      scales: {
-        y: { min: 0 }
-      }
-    };
-
-    return (
-      <div style={{ marginTop: "2rem" }}>
-        <p style={{ fontSize: "0.85rem", color: "#666" }}>💡 Click on the Red or Green markers below to jump to the video event!</p>
-        <Line data={chartData} options={options} />
-      </div>
-    );
+  const handleEventClick = (ev) => {
+    setActiveEvent(ev);
+    if (videoRef.current) {
+      videoRef.current.currentTime = ev.timestamp;
+      videoRef.current.play().catch(e => console.log("Video Play Error:", e));
+    }
   };
 
   return (
@@ -212,13 +125,6 @@ export default function VideoUpload() {
           {loading ? "Processing…" : "Upload"}
         </button>
         {error && <p style={{ color: "red" }}>{error}</p>}
-        {activeEvent && (
-          <div style={{ marginTop: "1rem", padding: "1rem", borderRadius: "8px", border: `2px solid ${activeEvent.type === 'positive' ? '#28a745' : '#dc3545'}` }}>
-            <h4>{activeEvent.type.toUpperCase()}: {activeEvent.category}</h4>
-            <p>{activeEvent.description}</p>
-            {activeEvent.correction && <p><strong>Correction:</strong> {activeEvent.correction}</p>}
-          </div>
-        )}
         
         {videoUrl && (
           <div style={{ marginTop: "1rem" }}>
@@ -226,28 +132,32 @@ export default function VideoUpload() {
           </div>
         )}
 
-        {timeline && timeline.length > 0 && <EnergyChart data={timeline} events={events} />}
+        {timeline && timeline.length > 0 && <EnergyAnalytics data={timeline} activeEvent={activeEvent} />}
       </div>
 
-      {/* RIGHT COLUMN: MATCH REPORT SIDEBAR */}
-      <div style={{ flex: 1, paddingLeft: "1rem", borderLeft: "2px solid #eaeaea" }}>
-        <h3>Gemini Match Report</h3>
-        {feedback ? (
-          <div>
-            <div style={{ textAlign: "center", marginBottom: "1rem" }}>
-               <h1 style={{ fontSize: "3rem", margin: 0, color: "rgba(138, 43, 226, 1)" }}>{feedback.ratings.technical_depth * 10}%</h1>
-               <p style={{ margin: 0 }}><strong>Match Alignment</strong></p>
+      {/* RIGHT COLUMN: TIMELINE & MATCH REPORT SIDEBAR */}
+      <div style={{ flex: 1, paddingLeft: "1rem", borderLeft: "2px solid var(--border)", display: "flex", flexDirection: "column" }}>
+        <InterviewTimeline events={events} activeEvent={activeEvent} onEventClick={handleEventClick} />
+        
+        <div style={{ marginTop: "2rem" }}>
+          <h3>Gemini Match Report</h3>
+          {feedback ? (
+            <div>
+              <div style={{ textAlign: "center", marginBottom: "1rem" }}>
+                 <h1 style={{ fontSize: "3rem", margin: 0, color: "rgba(138, 43, 226, 1)" }}>{feedback.ratings.technical_depth * 10}%</h1>
+                 <p style={{ margin: 0 }}><strong>Match Alignment</strong></p>
+              </div>
+              <h4>Strengths</h4>
+              <ul>
+                {feedback.strengths.map((s, i) => <li key={i}>{s}</li>)}
+              </ul>
+              <h4>Improvement Plan</h4>
+              <p>{feedback.improvement_plan}</p>
             </div>
-            <h4>Strengths</h4>
-            <ul>
-              {feedback.strengths.map((s, i) => <li key={i}>{s}</li>)}
-            </ul>
-            <h4>Improvement Plan</h4>
-            <p>{feedback.improvement_plan}</p>
-          </div>
-        ) : (
-          <p style={{ color: "#999" }}>Awaiting Deep Analysis...</p>
-        )}
+          ) : (
+            <p style={{ color: "#999" }}>Awaiting Deep Analysis...</p>
+          )}
+        </div>
       </div>
     </div>
   );

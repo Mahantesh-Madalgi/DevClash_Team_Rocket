@@ -21,3 +21,7 @@ All actions are logged with timestamps.
 ### Phase 6: Interactive Event Timeline UI
 - **Timestamp**: 2026-04-19 00:25:00 UTC
 - **Architecture**: Overhauled `VideoUpload.jsx` using Flexbox layout. Bound the `URL.createObjectURL(file)` to a native HTML5 video player hook. Installed `chartjs-plugin-annotation` and mapped SQL array points directly onto the curve. Added `onClick` interaction seeking via React `useRef` rendering the dynamically generated Gemini Match Report concurrently in the right-pane view.
+
+### Phase 7: Decoupled Biometric Analytics from Event Timeline
+- **Timestamp**: 2026-04-19 01:35:00 UTC
+- **Architecture**: Extracted the monolithic inline `EnergyChart` from `VideoUpload.jsx` into two independent, reusable components. `EnergyAnalytics.jsx` renders a pristine area chart driven by acoustic energy data; on event click, it draws a vertical dashed crosshair reference line using `chartjs-plugin-annotation`. `InterviewTimeline.jsx` renders a scrollable, high-contrast event list (Emerald #10b981 for wins, Rose #e11d48 for errors) with inline Gemini AI Correction cards for negative events. The parent orchestrator `VideoUpload.jsx` now synchronizes state unidirectionally via `handleEventClick -> videoRef.currentTime + setActiveEvent`.
