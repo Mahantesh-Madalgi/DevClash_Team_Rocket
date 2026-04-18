@@ -101,6 +101,14 @@ async def upload_video(file: UploadFile = File(...)):
         llm_feedback = evaluate_transcript(response_dict)
     except Exception as e:
         print(f"DEBUG: Evaluator error: {e}")
+        
+    # Analyze Time-Series Energy
+    energy_timeline = []
+    try:
+        from analyzer import analyze_energy_timeline
+        energy_timeline = analyze_energy_timeline(audio_path)
+    except Exception as e:
+        print(f"DEBUG: Timeline error: {e}")
 
     finally:
         # Clean up audio file
@@ -119,6 +127,7 @@ async def upload_video(file: UploadFile = File(...)):
             "gap_count": gap_count,
             "filler_word_count": filler_word_count,
             "llm_feedback_json": llm_feedback,
+            "energy_timeline": energy_timeline,
             "created_at": datetime.utcnow().isoformat(),
         }).execute()
     except Exception as e:
@@ -131,6 +140,7 @@ async def upload_video(file: UploadFile = File(...)):
         "analysis": {
             "gaps": gap_count,
             "fillers": filler_word_count,
-            "feedback": llm_feedback
+            "feedback": llm_feedback,
+            "timeline": energy_timeline
         }
     })
