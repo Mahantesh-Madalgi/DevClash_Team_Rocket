@@ -31,7 +31,7 @@ Respond ONLY with a raw JSON object exactly matching this schema:
         "confidence": 9
     }},
     "strengths": ["string", "string"],
-    "weakness": "string"
+    "improvement_plan": "string"
 }}
 
 TRANSCRIPT:
@@ -39,11 +39,14 @@ TRANSCRIPT:
 """
         completion = client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
-            model="llama3-8b-8192", 
+            model="llama-3.1-8b-instant", 
             temperature=0.2,
         )
         
         raw_response = completion.choices[0].message.content
+        
+        print("--- RAW GROQ RESPONSE START ---")
+        print(raw_response)
         
         # Safely extract JSON blocks if markdown is present
         match = re.search(r"\{.*\}", raw_response, re.DOTALL)
@@ -56,5 +59,5 @@ TRANSCRIPT:
         return {
             "ratings": {"clarity": 0, "technical_depth": 0, "confidence": 0},
             "strengths": [],
-            "weakness": "Feedback evaluation failed."
+            "improvement_plan": "Feedback evaluation failed."
         }

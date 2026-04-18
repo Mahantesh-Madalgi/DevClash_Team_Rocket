@@ -9,6 +9,7 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 export default function VideoUpload() {
   const [file, setFile] = useState(null);
   const [transcript, setTranscript] = useState(null);
+  const [feedback, setFeedback] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -32,7 +33,7 @@ export default function VideoUpload() {
       // 2. Fetch transcript from Supabase using the SDK
       const { data: rows, error: supErr } = await supabase
         .from("analysis_results")
-        .select("transcript_json")
+        .select("transcript_json, llm_feedback_json")
         .eq("video_name", videoName)
         .order("created_at", { ascending: false })
         .limit(1);
@@ -43,6 +44,8 @@ export default function VideoUpload() {
       
       if (rows && rows.length > 0) {
         setTranscript(rows[0].transcript_json);
+        setFeedback(rows[0].llm_feedback_json);
+        console.log("Analysis Feedback from DB:", rows[0].llm_feedback_json);
       } else {
         setError("Transcript not found in Supabase");
       }
@@ -65,6 +68,12 @@ export default function VideoUpload() {
             <p>{speaker.transcript}</p>
           </div>
         ))}
+        {feedback && feedback.improvement_plan && (
+          <div className="feedback-box" style={{ marginTop: "2rem", padding: "1rem", backgroundColor: "#f9f9f9", borderLeft: "4px solid #007bff" }}>
+            <h3>AI Feedback</h3>
+            <p><strong>Improvement Plan:</strong> {feedback.improvement_plan}</p>
+          </div>
+        )}
       </div>
     );
   };

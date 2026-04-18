@@ -39,11 +39,12 @@ async def upload_video(file: UploadFile = File(...)):
     with open(temp_video_path, "wb") as buffer:
         buffer.write(await file.read())
 
-    # Extract audio using moviepy (compress to MP3 to avoid massive file size and network timeout)
+    # Extract audio using moviepy (High compression to avoid network timeout)
     try:
         clip = VideoFileClip(temp_video_path)
         audio_path = f"/tmp/{uuid.uuid4()}.mp3"
-        clip.audio.write_audiofile(audio_path, codec="libmp3lame")
+        # 32k is more than enough for speech and drastically reduces file size
+        clip.audio.write_audiofile(audio_path, codec="libmp3lame", bitrate="32k")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Audio extraction failed: {e}")
     finally:
