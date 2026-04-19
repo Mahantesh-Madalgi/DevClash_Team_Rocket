@@ -130,8 +130,8 @@ def extract_confidence_events(energy_timeline: list) -> list:
             events.append({
                 "timestamp": point["time"],
                 "type": "positive",
-                "category": "confidence",
-                "description": "High vocal confidence and strong acoustic projection.",
+                "category": "vocal_projection",
+                "description": "Strong acoustic projection and vocal clarity.",
                 "correction": None
             })
             
@@ -139,7 +139,7 @@ def extract_confidence_events(energy_timeline: list) -> list:
     filtered = []
     last_time = -10.0
     for e in events:
-        if e["timestamp"] - last_time >= 4.0: # 4 seconds spacing
+        if e["timestamp"] - last_time >= 6.0: # 6 seconds spacing (increased from 4s)
             filtered.append(e)
             last_time = e["timestamp"]
             

@@ -68,11 +68,14 @@ TRANSCRIPT:
 TASK:
 1. "match_percentage": A balanced alignment score rewarding structural logic.
 2. "scorecard": 0-10 ratings for Technical Depth, Communication, Relevance, and Confidence.
-3. "technical_events": For every GROWTH AREA (negative event), provide a structured Mentorship Insight:
-   - "diagnosis": What exactly went wrong (e.g., 'Switched to non-English language', 'Vague on React Hooks dependency array').
-   - "gold_standard": The optimized, English-only architectural response they SHOULD have given.
-   - "growth_plan": A practical mentor tip (e.g., 'Practice explaining state cycles in English', 'Study the difference between useEffect and useMemo').
-   - "timestamp": The exact second this happened.
+3. "technical_events": Extract critical moments.
+   - POSITIVE Categorization: "confidence", "language_fluency", "voice_clarity", "technical_keywords".
+   - NEGATIVE Categorization: "hesitation", "fear", "underconfidence", "anger".
+   - For every NEGATIVE event, provide a structured Mentorship Insight:
+     - "diagnosis": What went wrong (e.g., 'Exhibited vocal frustration/anger', 'Hesitated on basic architectural question').
+     - "gold_standard": The optimized English-only response or behavioral reframe (e.g., 'I understand the complexity, and here is how I approach it...').
+     - "growth_plan": PROFESSIONAL REFRAMING TIP. Instead of just technical fixes, focus on self-control and composure (e.g., 'When feeling fear, pause for 2 seconds to reset your breathing before answering').
+     - "timestamp": The exact second this happened.
 4. "selection_probability": 0-100 realistic readiness score.
 5. "summary": 3-sentence mentor summary highlighting the path to excellence.
 
@@ -90,7 +93,7 @@ JSON SCHEMA:
         {{
             "timestamp": number,
             "type": "positive" | "negative",
-            "category": "technical" | "language" | "confidence",
+            "category": "confidence" | "language_fluency" | "voice_clarity" | "technical_keywords" | "hesitation" | "fear" | "underconfidence" | "anger",
             "description": string, (Use for POSITIVE events)
             "diagnosis": string, (MANDATORY for NEGATIVE events)
             "gold_standard": string, (MANDATORY for NEGATIVE events)
