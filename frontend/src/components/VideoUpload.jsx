@@ -1,10 +1,24 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  CloudUpload,
+  Play,
+  BarChart3,
+  FileText,
+  CheckCircle2,
+  AlertTriangle,
+  Zap,
+  Target,
+  Users
+} from "lucide-react";
+
 import JDInput from "./JDInput";
 import EnergyAnalytics from "./EnergyAnalytics";
 import InterviewTimeline from "./InterviewTimeline";
+import LiveTranscript from "./LiveTranscript";
+import SelectionPieChart from "./SelectionPieChart";
 
-// Supabase credentials (using environment variables)
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseServiceKey = import.meta.env.VITE_SUPABASE_SERVICE_KEY;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -19,8 +33,10 @@ export default function VideoUpload() {
   const [activeEvent, setActiveEvent] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  
-  const videoRef = React.useRef(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const videoRef = useRef(null);
   const videoUrl = file ? URL.createObjectURL(file) : null;
 
   const handleUpload = async () => {
@@ -33,40 +49,24 @@ export default function VideoUpload() {
       if (jobDescription) {
         formData.append("job_description", jobDescription);
       }
-      
-      // 1. Upload to backend
-      const resp = await fetch("http://localhost:8000/upload", {
+
+      const resp = await fetch("http://127.0.0.1:8000/upload", {
         method: "POST",
         body: formData,
       });
-      if (!resp.ok) throw new Error("Upload failed");
+      if (!resp.ok) throw new Error("Analysis failed. Please check your backend connection.");
       const data = await resp.json();
-      
-      if (data.analysis && data.analysis.events) {
-         setEvents(data.analysis.events);
-      }
-      
-      const videoName = file.name;
-      
-      // 2. Fetch transcript from Supabase using the SDK
-      const { data: rows, error: supErr } = await supabase
-        .from("analysis_results")
-        .select("transcript_json, llm_feedback_json, energy_timeline")
-        .eq("video_name", videoName)
-        .order("created_at", { ascending: false })
-        .limit(1);
-        
-      if (supErr) {
-        throw new Error(supErr.message);
-      }
-      
-      if (rows && rows.length > 0) {
-        setTranscript(rows[0].transcript_json);
-        setFeedback(rows[0].llm_feedback_json);
-        setTimeline(rows[0].energy_timeline);
-        console.log("Analysis Feedback from DB:", rows[0].llm_feedback_json);
+
+      // Use the API response data directly for immediate UI updates
+      if (data.analysis) {
+        setTranscript(data.transcript);
+        setFeedback(data.analysis.feedback);
+        setTimeline(data.analysis.timeline);
+        if (data.analysis.events) {
+          setEvents(data.analysis.events);
+        }
       } else {
-        setError("Transcript not found in Supabase");
+        setError("Analysis data was not returned correctly from the backend.");
       }
     } catch (e) {
       setError(e.message);
@@ -75,87 +75,221 @@ export default function VideoUpload() {
     }
   };
 
-  const renderTranscript = () => {
-    if (!transcript) return null;
-    // Deepgram diarized format: transcript.speakers array with utterances
-    const speakers = transcript.speakers || [];
-    return (
-      <div className="transcript">
-        {speakers.map((speaker, idx) => (
-          <div key={idx} className="speaker-block" style={{ marginBottom: "1rem" }}>
-            <strong>{`Speaker ${speaker.speaker}`}</strong>
-            <p>{speaker.transcript}</p>
-          </div>
-        ))}
-        {feedback && feedback.improvement_plan && (
-          <div className="feedback-box" style={{ marginTop: "2rem", padding: "1rem", backgroundColor: "#f9f9f9", borderLeft: "4px solid #007bff" }}>
-            <h3>AI Feedback</h3>
-            <p><strong>Improvement Plan:</strong> {feedback.improvement_plan}</p>
-          </div>
-        )}
-        
-        {timeline && timeline.length > 0 && (
-          <EnergyChart data={timeline} />
-        )}
-      </div>
-    );
-  };
-  
   const handleEventClick = (ev) => {
     setActiveEvent(ev);
     if (videoRef.current) {
       videoRef.current.currentTime = ev.timestamp;
-      videoRef.current.play().catch(e => console.log("Video Play Error:", e));
+      videoRef.current.play().catch(e => console.log("Playback error:", e));
     }
   };
 
-  return (
-    <div style={{ padding: "2rem", display: "flex", gap: "2rem", maxWidth: "1200px", margin: "auto" }}>
-      {/* LEFT COLUMN: UPLOAD, VIDEO, CHART */}
-      <div style={{ flex: 2 }}>
-        <h2>Interactive Upload Dashboard</h2>
-        <JDInput jobDescription={jobDescription} setJobDescription={setJobDescription} />
-        <input
-          type="file"
-          accept="video/*"
-          onChange={(e) => setFile(e.target.files[0])}
-          disabled={loading}
-        />
-        <button onClick={handleUpload} disabled={!file || loading} style={{ marginLeft: "1rem" }}>
-          {loading ? "Processing…" : "Upload"}
-        </button>
-        {error && <p style={{ color: "red" }}>{error}</p>}
-        
-        {videoUrl && (
-          <div style={{ marginTop: "1rem" }}>
-            <video ref={videoRef} src={videoUrl} controls style={{ width: "100%", borderRadius: "8px" }} />
-          </div>
+  const updateTime = () => {
+    if (videoRef.current) {
+      setCurrentTime(videoRef.current.currentTime);
+    }
+  };
+
+  const isInitialState = !loading && !feedback;
+
+  if (isInitialState) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", width: "100%", minHeight: "100vh", padding: "2.5rem", boxSizing: "border-box" }}>
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            style={{ padding: "1rem", background: "#fee2e2", color: "#b91c1c", borderRadius: "8px", marginBottom: "1.5rem", display: "flex", alignItems: "center", gap: "0.5rem", fontWeight: 600, width: "100%" }}
+          >
+            <AlertTriangle size={18} /> {error}
+          </motion.div>
         )}
 
-        {timeline && timeline.length > 0 && <EnergyAnalytics data={timeline} activeEvent={activeEvent} />}
+        {/* Full-width drag box */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.97 }}
+          animate={{ opacity: 1, scale: 1 }}
+          style={{ width: "100%" }}
+        >
+          <div
+            className={`drag-box-professional glass-card ${isDragging ? "dragging" : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragging(false);
+              setFile(e.dataTransfer.files[0]);
+            }}
+            onClick={() => document.getElementById("video-upload-initial").click()}
+            style={{
+              width: "100%",
+              height: "220px",
+              padding: "2rem 3rem",
+              display: "flex",
+              flexDirection: "row",
+              justifyContent: "center",
+              alignItems: "center",
+              gap: "2.5rem",
+              boxSizing: "border-box",
+              cursor: "pointer"
+            }}
+          >
+            <input
+              type="file"
+              id="video-upload-initial"
+              hidden
+              accept="video/*"
+              onChange={(e) => setFile(e.target.files[0])}
+            />
+            {/* Left: Icon */}
+            <div className="animate-bounce-slow" style={{ color: "var(--accent-purple)", flexShrink: 0 }}>
+              <CloudUpload size={72} />
+            </div>
+
+            {/* Vertical Divider */}
+            <div style={{ width: "1px", height: "80px", background: "var(--slate-300)", flexShrink: 0 }} />
+
+            {/* Right: Text */}
+            <div style={{ textAlign: "left" }}>
+              <h3 style={{ color: "var(--brand-800)", margin: "0 0 0.5rem 0", fontWeight: "800", fontSize: "1.5rem" }}>
+                {file ? `Selected: ${file.name}` : "Drag & Drop your files here, or click to browse"}
+              </h3>
+              <span style={{ color: "var(--brand-500)", fontSize: "0.875rem", fontWeight: "700", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                SUPPORTS MP4 (MAX 5 MIN)
+              </span>
+            </div>
+          </div>
+
+          {file && (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} style={{ width: "100%", display: "flex", flexDirection: "column", gap: "1.5rem", marginTop: "2rem" }}>
+              <div className="glass-card" style={{ padding: "1.5rem", background: "#fff", border: "1px solid var(--slate-200)", borderRadius: "0px" }}>
+                <JDInput jobDescription={jobDescription} setJobDescription={setJobDescription} />
+              </div>
+              <button
+                className="btn-primary"
+                onClick={handleUpload}
+                style={{ borderRadius: "0px", padding: "1.25rem", fontSize: "1.1rem", display: "flex", justifyContent: "center", width: "100%", fontWeight: "700", boxShadow: "0 10px 20px rgba(14, 165, 233, 0.2)" }}
+              >
+                Analyze Interview
+              </button>
+            </motion.div>
+          )}
+        </motion.div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ paddingBottom: "4rem" }}>
+      {error && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{ padding: "1rem", background: "#fee2e2", color: "#b91c1c", borderRadius: "8px", marginBottom: "2rem", display: "flex", alignItems: "center", gap: "0.5rem", fontWeight: 600 }}
+        >
+          <AlertTriangle size={18} /> {error}
+        </motion.div>
+      )}
+
+      {/* DASHBOARD HEADER */}
+      <header className="dashboard-header">
+        <div>
+          <h1 style={{ margin: 0, fontSize: "1.8rem", fontWeight: 800 }}>Interview Overview</h1>
+          <p style={{ margin: 0, color: "var(--text)", fontSize: "0.95rem" }}>Review your latest performance metrics.</p>
+        </div>
+        <div style={{ display: "flex", gap: "1rem" }}>
+          <button className="btn-primary" style={{ background: "transparent", color: "var(--brand-500)", border: "2px solid var(--brand-500)" }}>
+            Start Interview
+          </button>
+          <button className="btn-primary" onClick={() => window.location.reload()}>
+            Upload Interview
+          </button>
+        </div>
+      </header>
+
+      {/* TIER 1: Timeline, Selection Pie, Stats */}
+      <div className="tier-1-grid" style={{ marginBottom: "2rem" }}>
+        {/* TIMELINE ISSUES */}
+        <div className="glass-card" style={{ height: "400px" }}>
+          <InterviewTimeline events={events} activeEvent={activeEvent} onEventClick={handleEventClick} loading={loading} />
+        </div>
+
+        {/* SELECTION PROBABILITY */}
+        <div className="glass-card" style={{ height: "400px", display: "flex", flexDirection: "column" }}>
+          <h3 style={{ margin: "0 0 1rem 0" }}>Selection Probability</h3>
+          <div style={{ flexGrow: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {feedback ? <SelectionPieChart feedback={feedback} /> : <div className="skeleton-loader" style={{ width: "200px", height: "200px", borderRadius: "50%", background: "rgba(14, 165, 233, 0.1)" }}></div>}
+          </div>
+        </div>
+
+        {/* STATS */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+          <div className="stat-card glass-card">
+            <span className="stat-label">Confidence</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+              <span className="stat-value">
+                {feedback ? (feedback.scorecard?.confidence ?? feedback.ratings?.confidence ?? 0) + "/10" : "-/10"}
+              </span>
+              <Zap size={32} color="var(--brand-500)" opacity={0.5} />
+            </div>
+          </div>
+          <div className="stat-card glass-card">
+            <span className="stat-label">Technical Depth</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+              <span className="stat-value">
+                {feedback ? (feedback.scorecard?.technical_depth ?? feedback.ratings?.technical_depth ?? 0) + "/10" : "-/10"}
+              </span>
+              <FileText size={32} color="var(--accent-purple)" opacity={0.5} />
+            </div>
+          </div>
+          <div className="stat-card glass-card">
+            <span className="stat-label">Detected Events</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+              <span className="stat-value">{events.length}</span>
+              <Users size={32} color="var(--text)" opacity={0.5} />
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* RIGHT COLUMN: TIMELINE & MATCH REPORT SIDEBAR */}
-      <div style={{ flex: 1, paddingLeft: "1rem", borderLeft: "2px solid var(--border)", display: "flex", flexDirection: "column" }}>
-        <InterviewTimeline events={events} activeEvent={activeEvent} onEventClick={handleEventClick} />
-        
-        <div style={{ marginTop: "2rem" }}>
-          <h3>Gemini Match Report</h3>
-          {feedback ? (
-            <div>
-              <div style={{ textAlign: "center", marginBottom: "1rem" }}>
-                 <h1 style={{ fontSize: "3rem", margin: 0, color: "rgba(138, 43, 226, 1)" }}>{feedback.ratings.technical_depth * 10}%</h1>
-                 <p style={{ margin: 0 }}><strong>Match Alignment</strong></p>
-              </div>
-              <h4>Strengths</h4>
-              <ul>
-                {feedback.strengths.map((s, i) => <li key={i}>{s}</li>)}
-              </ul>
-              <h4>Improvement Plan</h4>
-              <p>{feedback.improvement_plan}</p>
-            </div>
+      {/* TIER 2: AI Insights Banner */}
+      <div className="tier-2-insights" style={{ marginBottom: "2rem" }}>
+        <div style={{ padding: "2rem 2.5rem", color: "#fff" }}>
+          <h2 style={{ margin: 0, fontSize: "1.5rem" }}>AI Analysis & Insights</h2>
+          <p style={{ margin: "0.5rem 0 0 0", opacity: 0.9 }}>Actionable intelligence to perfect your next response.</p>
+        </div>
+        <div className="tier-2-inner">
+          {transcript ? (
+            <LiveTranscript transcript={transcript} currentTime={currentTime} />
           ) : (
-            <p style={{ color: "#999" }}>Awaiting Deep Analysis...</p>
+            <div className="skeleton-loader" style={{ height: "100px", background: "rgba(14, 165, 233, 0.1)", borderRadius: "8px" }}></div>
+          )}
+        </div>
+      </div>
+
+      {/* TIER 3: Analytics & Video */}
+      <div className="tier-3-grid">
+        <div className="glass-card">
+          <h3 style={{ margin: "0 0 1rem 0" }}>Energy Over Time</h3>
+          {timeline && timeline.length > 0 ? (
+            <EnergyAnalytics data={timeline} activeEvent={activeEvent} />
+          ) : (
+            <div className="skeleton-loader" style={{ height: "250px", background: "rgba(14, 165, 233, 0.1)", borderRadius: "8px" }}></div>
+          )}
+        </div>
+        <div className="glass-card" style={{ padding: 0, overflow: "hidden" }}>
+          {videoUrl ? (
+            <video
+              ref={videoRef}
+              src={videoUrl}
+              controls
+              onTimeUpdate={updateTime}
+              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+            />
+          ) : (
+            <div style={{ height: "300px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0f172a", color: "#fff" }}>
+              <Play size={48} opacity={0.3} />
+              <p style={{ marginTop: "1rem", opacity: 0.5, fontSize: "0.9rem" }}>No video loaded</p>
+            </div>
           )}
         </div>
       </div>

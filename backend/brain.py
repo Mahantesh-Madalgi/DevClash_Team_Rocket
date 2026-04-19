@@ -23,8 +23,8 @@ Respond ONLY with a raw JSON array matching this format (return empty [] if no v
 [
     {{
         "timestamp": 1.5,
-        "description": "Used unauthorized language.",
-        "correction": "(English translation of the phrase)"
+        "issue": "(The exact non-allowed statement spoken by the candidate)",
+        "correction": "(The fully rewritten correct statement translated to English)"
     }}
 ]
 
@@ -54,35 +54,61 @@ def gemini_comparison_report(transcript_text: str, job_description: str) -> dict
     # We use Flash because it handles heavy technical context windows elegantly while remaining snappy
     model = genai.GenerativeModel('gemini-1.5-flash')
     
+    jd_context = job_description if job_description and job_description.strip() else "NO JOB DESCRIPTION PROVIDED. Perform a 'General Professional Conduct Evaluation' against standard interview benchmarks for clarity, technical soundness, and professional poise."
+    
     prompt = f"""
-You are an expert technical HR auditor.
-Below is the candidate's transcript and the given Job Description requirements.
+You are an Senior Technical Interviewer & Auditor. 
+Analyze the candidate's transcript against the Job Description or General Professional Standards with extreme precision.
 
-JOB DESCRIPTION:
-{job_description or "General Professional Role"}
+JOB DESCRIPTION CONTEXT:
+{jd_context}
 
 TRANSCRIPT:
 {transcript_text}
 
-Analyze the candidate's technical skills, soft skills, and experiences vs the Job Description. Output a strict JSON object:
+TASK:
+1. "match_percentage": 
+   - If JD is provided: A strict percentage calculation based on alignment with specific JD requirements.
+   - If NO JD is provided: A "General Interview Readiness" score based on articulation, logical flow, and professional conduct.
+2. "scorecard": 0-10 ratings for:
+   - "technical_depth": Ability to explain 'how' and 'why'.
+   - "communication_clarity": Conciseness and lack of ambiguity.
+   - "requirement_relevance": (If NO JD, rate this as "Professionalism/Poise").
+   - "confidence": Rated from hesitation, filler words, and assertion.
+3. "technical_events": Extract critical moments where the candidate either EXCELLED (positive) or showed a GAP (negative) in professionalism or technical knowledge.
+   - For POSITIVE events: Provide a "description".
+   - For NEGATIVE events: Provide an "issue" (quote the exact full statement the candidate said poorly/wrongly) and a "correction" (provide the completely rewritten, ideal way they should have said it).
+4. "selection_probability": A number 0-100 representing the probability this candidate would be selected for the next round based on their performance.
+5. "summary": A 3-sentence high-signal summary.
+   - If NO JD: Focus on general strengths and the single biggest communication or technical risk.
+
+CRITICAL CONSTRAINTS:
+- Do NOT use generic praise. Use evidence. 
+- NO sentiment analysis or emotional tone checking.
+- Output MUST be a raw, parsable JSON object.
+
+JSON SCHEMA:
 {{
-    "match_percentage": 85,
+    "match_percentage": number,
+    "selection_probability": number,
+    "scorecard": {{
+        "technical_depth": number,
+        "communication_clarity": number,
+        "requirement_relevance": number,
+        "confidence": number
+    }},
     "technical_events": [
         {{
-            "timestamp": 12.0,
-            "type": "positive",
+            "timestamp": number,
+            "type": "positive" | "negative",
             "category": "technical",
-            "description": "Demonstrated strong knowledge relevant to JD."
-        }},
-        {{
-            "timestamp": 45.0,
-            "type": "negative",
-            "category": "leadership",
-            "description": "Lacked examples required for leadership."
+            "description": string,
+            "issue": string,
+            "correction": string
         }}
-    ]
+    ],
+    "summary": string
 }}
-Ensure the JSON is raw and parsable. If exact timestamps are unknown, approximate or default to 0.0.
 """
     try:
         response = model.generate_content(prompt)

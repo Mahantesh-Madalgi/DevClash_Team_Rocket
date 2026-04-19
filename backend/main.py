@@ -43,12 +43,18 @@ async def upload_video(
     with open(temp_video_path, "wb") as buffer:
         buffer.write(await file.read())
 
-    # Extract audio using moviepy (High compression to avoid network timeout)
+    # Extract audio as WAV — stereo + 128k for accurate speaker diarization
     try:
         clip = VideoFileClip(temp_video_path)
-        audio_path = f"/tmp/{uuid.uuid4()}.mp3"
-        # 32k is more than enough for speech and drastically reduces file size
-        clip.audio.write_audiofile(audio_path, codec="libmp3lame", bitrate="32k")
+        audio_path = f"/tmp/{uuid.uuid4()}.wav"
+        # WAV with 128k preserves stereo channel separation, critical for diarization accuracy
+        # Deepgram performs much better with stereo: it can acoustically isolate voices per channel
+        clip.audio.write_audiofile(
+            audio_path,
+            fps=16000,        # 16kHz is the optimal sample rate for speech models
+            nbytes=2,         # 16-bit PCM
+            ffmpeg_params=["-ac", "2"]  # Preserve stereo channels
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Audio extraction failed: {e}")
     finally:
@@ -65,13 +71,23 @@ async def upload_video(
     # Send to Deepgram for diarized transcription with filler words
     try:
         async with httpx.AsyncClient(timeout=300.0) as http_client:
-            dg_url = "https://api.deepgram.com/v1/listen?model=general&punctuate=true&diarize=true&filler_words=true"
+            dg_url = (
+                "https://api.deepgram.com/v1/listen"
+                "?model=nova-2"            # Best accuracy model
+                "&language=en"             # Lock to English
+                "&punctuate=true"
+                "&diarize=true"            # Speaker diarization
+                "&multichannel=false"      # Force single diarized output (not separate channel transcripts)
+                "&smart_format=true"       # Format numbers, dates, proper nouns
+                "&filler_words=true"       # Detect um/uh
+                "&utterances=true"         # Return grouped utterances with speaker IDs
+            )
             dg_resp = await http_client.post(
                 dg_url,
                 content=audio_bytes,
                 headers={
                     "Authorization": f"Token {DG_API_KEY}",
-                    "Content-Type": "audio/mp3"
+                    "Content-Type": "audio/wav"  # WAV for better diarization quality
                 }
             )
             if dg_resp.status_code != 200:
@@ -144,6 +160,27 @@ async def upload_video(
         comparison_report = gemini_comparison_report(transcript_text, job_description)
         tech_evts = comparison_report.get("technical_events", [])
         technical_events = tech_evts
+        
+        # Fetch raw scores with robust fallbacks
+        tech_score = comparison_report.get("scorecard", {}).get("technical_depth", 0)
+        comm_score = comparison_report.get("scorecard", {}).get("communication_clarity", 0)
+        conf_score = comparison_report.get("scorecard", {}).get("confidence", comm_score) # fallback to comm if conf is completely missing
+        
+        # Calculate dynamic probability
+        pos_events = len([e for e in tech_evts if e.get("type") == "positive"])
+        base_prob = (tech_score * 4.5) + (conf_score * 3.5) + (pos_events * 2.0)
+        final_prob = min(98, max(5, int(base_prob))) # Bound between 5% and 98%
+        
+        # Merge comparison report into llm_feedback for Supabase storage
+        llm_feedback["is_jd_analysis"] = bool(job_description and job_description.strip())
+        llm_feedback["match_percentage"] = comparison_report.get("match_percentage", 0)
+        llm_feedback["scorecard"] = {
+            "technical_depth": tech_score,
+            "communication_clarity": comm_score,
+            "confidence": conf_score
+        }
+        llm_feedback["summary"] = comparison_report.get("summary", "")
+        llm_feedback["selection_probability"] = final_prob
         
     except Exception as e:
         import traceback

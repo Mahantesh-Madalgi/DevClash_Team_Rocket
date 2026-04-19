@@ -12,7 +12,7 @@ def evaluate_transcript(deepgram_json: dict) -> dict:
         channels = deepgram_json.get("results", {}).get("channels", [])
         if not channels:
             return {
-                "ratings": {"clarity": 0, "technical_depth": 0, "confidence": 0},
+                "ratings": {"communication": 0, "technical_depth": 0, "confidence": 0},
                 "strengths": [],
                 "improvement_plan": "No transcript found."
             }
@@ -23,18 +23,19 @@ def evaluate_transcript(deepgram_json: dict) -> dict:
         client = Groq(api_key=GROQ_API_KEY)
         
         prompt = f"""
-Analyze the following interview response sequence.
+You are a Lead Technical Recruiter. Analyze the following interview transcript for professional communication and core depth.
 
-Tasks:
-1. Rate Clarity, Technical Depth, and Confidence (1-10).
-2. Provide 2 strengths and 1 improvement_plan based on speech.
+TASKS:
+1. Rate "communication", "technical_depth", and "confidence" on a strict 1-10 scale.
+2. Provide two "strengths": specifically mention concepts or terminology used by the candidate.
+3. Provide one "improvement_plan": this MUST be a single plain-text string (NOT an object or array). Describe one actionable technical or soft-skill area they should focus on.
 
-Respond ONLY with a raw JSON object exactly matching this schema:
-{{
-    "ratings": {{ "clarity": 8, "technical_depth": 7, "confidence": 9 }},
-    "strengths": ["...", "..."],
-    "improvement_plan": "..."
-}}
+CRITICAL GUIDELINES:
+- Be objective and specific.
+- The "improvement_plan" field MUST be a raw string. 
+- Avoid generic filler suggestions like "Be more confident". 
+- Instead, use "Improve clarity on [Specific Concept]" or "Reduced reliance on filler words during [Specific Explanation]".
+- Respond ONLY with a raw JSON object.
 
 TRANSCRIPT:
 {transcript_text}
@@ -54,7 +55,7 @@ TRANSCRIPT:
     except Exception as e:
         print(f"DEBUG: Error evaluating transcript with Groq: {e}")
         return {
-            "ratings": {"clarity": 0, "technical_depth": 0, "confidence": 0},
+            "ratings": {"communication": 0, "technical_depth": 0, "confidence": 0},
             "strengths": [],
             "improvement_plan": "Feedback evaluation failed."
         }
