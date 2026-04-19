@@ -23,8 +23,9 @@ Respond ONLY with a raw JSON array matching this format (return empty [] if no v
 [
     {{
         "timestamp": 1.5,
-        "issue": "(The exact non-allowed statement spoken by the candidate)",
-        "correction": "(The fully rewritten correct statement translated to English)"
+        "diagnosis": "Language switch to [Language Name]",
+        "gold_standard": "(The fully rewritten correct statement translated to English)",
+        "growth_plan": "Maintain English immersion for technical consistency."
     }}
 ]
 
@@ -49,13 +50,25 @@ def gemini_comparison_report(transcript_text: str, job_description: str) -> dict
     Deep analytical comparison using Gemini 1.5. Scores capability against JD.
     """
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-    genai.configure(api_key=GEMINI_API_KEY)
     
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    
-    jd_context = job_description if job_description and job_description.strip() else "NO JOB DESCRIPTION PROVIDED. Perform a 'General Professional Conduct Evaluation'."
-    
-    prompt = f"""
+    # Pre-flight format validation
+    if not GEMINI_API_KEY or not GEMINI_API_KEY.startswith("AIza"):
+        print(f"CRITICAL: Malformed Gemini API Key. Starts with: {str(GEMINI_API_KEY)[:4]}...")
+        return {
+            "match_percentage": 0,
+            "selection_probability": 2,
+            "scorecard": {"technical_depth": 0, "communication_clarity": 0, "requirement_relevance": 0, "confidence": 0},
+            "technical_events": [],
+            "summary": "Critical: Gemini API Key is malformed/invalid in .env."
+        }
+
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel('gemini-flash-latest')
+        
+        jd_context = job_description if job_description and job_description.strip() else "NO JOB DESCRIPTION PROVIDED. Perform a 'General Professional Conduct Evaluation'."
+        
+        prompt = f"""
 You are a Senior Technical Architect & Real Mentor. 
 Analyze the candidate's transcript with Empathetic Technical Rigor. 
 
@@ -103,25 +116,18 @@ JSON SCHEMA:
     "summary": string
 }}
 """
-    try:
         response = model.generate_content(prompt)
-        raw_response = response.text
-        print("--- RAW GEMINI COMPARISON REPORT ---")
-        print(raw_response)
+        text = response.text
         
-        match = re.search(r"\{.*\}", raw_response, re.DOTALL)
-        return json.loads(match.group(0)) if match else json.loads(raw_response)
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        return json.loads(match.group(0)) if match else json.loads(text)
+        
     except Exception as e:
-        print(f"DEBUG: Gemini evaluation error: {e}")
+        print(f"DEBUG: Gemini evaluation failure: {e}")
         return {
             "match_percentage": 0,
-            "selection_probability": 0,
-            "scorecard": {
-                "technical_depth": 0,
-                "communication_clarity": 0,
-                "requirement_relevance": 0,
-                "confidence": 0
-            },
+            "selection_probability": 2,
+            "scorecard": {"technical_depth": 0, "communication_clarity": 0, "requirement_relevance": 0, "confidence": 0},
             "technical_events": [],
-            "summary": "AI evaluation failed. Please check backend logs."
+            "summary": f"Evaluation error: {str(e)}"
         }

@@ -145,24 +145,34 @@ def extract_confidence_events(energy_timeline: list) -> list:
             
     return filtered
 
-def calculate_success_probability(confidence: float, tech_depth: float, events: list, energy_timeline: list) -> int:
+def calculate_success_probability(confidence, tech_depth, events: list, energy_timeline: list) -> int:
     """
     Calculates a comprehensive selection probability score (0-100).
-    Factors:
-    - Base Scores (70%): Confidence and Technical Depth from AI.
-    - Event Momentum (20%): Impact of positive vs negative technical/communication events.
-    - Acoustic Energy (10%): Vocal stability and projection based on energy timeline.
+    Now with resilient type casting to prevent 500 errors from LLM string outputs.
     """
     try:
+        # Helper to safely convert AI output to float
+        def safe_float(val, default=5.0):
+            try:
+                if isinstance(val, (int, float)): return float(val)
+                if isinstance(val, str):
+                    # Handle "8/10" or other common LLM string patterns
+                    clean = val.split('/')[0].strip()
+                    return float(clean)
+                return default
+            except:
+                return default
+
+        f_conf = safe_float(confidence, 5.0)
+        f_tech = safe_float(tech_depth, 5.0)
+
         # 1. Base AI Score (Scaled to 70 points max)
-        # Weights: Tech Depth (4.0x), Confidence (3.0x) - Assuming 0-10 inputs
-        base_score = (float(tech_depth) * 4.0) + (float(confidence) * 3.0)
+        base_score = (f_tech * 4.0) + (f_conf * 3.0)
         
         # 2. Event Impact (20 points max swing)
         pos_count = len([e for e in events if e.get("type") == "positive"])
         neg_count = len([e for e in events if e.get("type") == "negative"])
         
-        # +6.0 per positive, -5.5 per negative (less harsh than previous -8.0)
         event_delta = (pos_count * 6.0) - (neg_count * 5.5)
         
         # 3. Energy Factor (10 points max)

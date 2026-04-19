@@ -1,11 +1,22 @@
+from dotenv import load_dotenv
+import os
+
+# FFmpeg Configuration for Mac environment mapping
+# This must happen BEFORE importing moviepy to override default path lookups
+try:
+    import imageio_ffmpeg
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    os.environ["FFMPEG_BINARY"] = ffmpeg_exe
+    print(f"DEBUG: Manually mapped FFMPEG_BINARY to: {ffmpeg_exe}")
+except ImportError:
+    print("WARNING: imageio-ffmpeg not found. Video extraction may fail.")
+
 from datetime import datetime
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import JSONResponse
 from moviepy import VideoFileClip
 import httpx
 from supabase import create_client, Client
-from dotenv import load_dotenv
-import os
 import uuid
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -215,6 +226,13 @@ async def upload_video(
         
         # Gemini Deep JD Comparison
         comparison_report = gemini_comparison_report(transcript_text, job_description)
+        
+        # Check for Critical LLM Failures
+        if "error" in comparison_report or comparison_report.get("match_percentage") == 0 and comparison_report.get("summary", "").startswith("Critical"):
+            msg = comparison_report.get("message", comparison_report.get("summary", "LLM Evaluation Failed"))
+            print(f"CRITICAL: Aborting analysis due to LLM error: {msg}")
+            raise HTTPException(status_code=403, detail=msg)
+
         technical_events = comparison_report.get("technical_events", [])
         
         # Merge Events early
@@ -222,8 +240,7 @@ async def upload_video(
         
         # --- METRIC MAPPING: PRIORITIZE GROQ RATINGS FOR UI ---
         # Resilient extraction to handle varying LLM response formats
-        print("\n--- RAW GROQ EVALUATION ---")
-        print(llm_response)
+        print(f"\n--- [STAGE] DATA EXTRACTION & PROBABILITY CALCULATION ---")
         
         def extract_score(data, key):
             # Check in ratings nested object
@@ -231,7 +248,7 @@ async def upload_video(
             if key in nested: return nested[key]
             # Check in top level
             if key in data: return data[key]
-            # Fallback for tech depth variation
+            # Fallback variations
             if key == "technical_depth":
                 for alt in ["tech_depth", "technical"]:
                     if alt in nested: return nested[alt]
@@ -249,35 +266,41 @@ async def upload_video(
             events=unified_events,
             energy_timeline=energy_timeline
         )
+        print(f"DEBUG: Calculated Final Probability: {final_prob}%")
         
         # Update llm_feedback for UI and Supabase storage
         llm_feedback["is_jd_analysis"] = bool(job_description and job_description.strip())
         llm_feedback["match_percentage"] = comparison_report.get("match_percentage", 0)
         llm_feedback["scorecard"] = {
-            "technical_depth": groq_tech,       # Mapping to Groq as requested
-            "communication_clarity": groq_comm, # Mapping to Groq as requested
-            "confidence": groq_conf           # Mapping to Groq as requested
+            "technical_depth": groq_tech,
+            "communication_clarity": groq_comm,
+            "confidence": groq_conf
         }
         llm_feedback["summary"] = comparison_report.get("summary", "")
         llm_feedback["selection_probability"] = final_prob
-        
+        llm_feedback["exchanges_json"] = exchanges # Carry forward for the UI
+        print(f"DEBUG: LLM Feedback object prepared.")
+
     except Exception as e:
         import traceback
         traceback.print_exc()
-        print(f"DEBUG: Dual-LLM Orchestration error: {e}")
+        print(f"CRITICAL ERROR in Dual-LLM Pipeline: {e}")
+        # We don't raise here, we try to salvaging what we can
         
     finally:
         # Clean up audio file
         try:
-            os.remove(audio_path)
+            if os.path.exists(audio_path):
+                os.remove(audio_path)
         except OSError:
             pass
 
-    # Store transcript JSON in Supabase
+    # Store results in Supabase
+    print(f"--- [STAGE] DATABASE PERSISTENCE ---")
     transcript_json = response_dict
     video_name = file.filename
     try:
-        supabase.table("analysis_results").insert({
+        results_resp = supabase.table("analysis_results").insert({
             "id": interview_id,
             "video_name": video_name,
             "transcript_json": transcript_json,
@@ -288,8 +311,9 @@ async def upload_video(
             "energy_timeline": energy_timeline,
             "created_at": datetime.utcnow().isoformat(),
         }).execute()
+        print(f"DEBUG: analysis_results insert successful.")
         
-        # Merge Events & Store Foreign Keys
+        # Store Events
         if unified_events:
             push_events = []
             for ev in unified_events:
@@ -303,12 +327,15 @@ async def upload_video(
                     "gold_standard": ev.get("gold_standard", ""),
                     "growth_plan": ev.get("growth_plan", "")
                 })
-            supabase.table("analysis_events").insert(push_events).execute()
+            ev_resp = supabase.table("analysis_events").insert(push_events).execute()
+            print(f"DEBUG: analysis_events ({len(push_events)} events) insert successful.")
             
     except Exception as e:
-        print(f"DEBUG: Supabase error: {e}")
-        raise HTTPException(status_code=500, detail=f"Supabase insert failed: {e}")
+        print(f"CRITICAL SUPABASE ERROR: {e}")
+        # Detailed diagnostic: check if it's a specific missing column or credential error
+        raise HTTPException(status_code=500, detail=f"Database Persistence Failed: {str(e)}")
 
+    print(f"--- [COMPLETE] ANALYSIS SUCCESSFUL ---")
     return JSONResponse(content={
         "status": "success", 
         "transcript": transcript_json,
