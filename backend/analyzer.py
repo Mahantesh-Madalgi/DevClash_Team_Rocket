@@ -144,3 +144,49 @@ def extract_confidence_events(energy_timeline: list) -> list:
             last_time = e["timestamp"]
             
     return filtered
+
+def calculate_success_probability(confidence: float, tech_depth: float, events: list, energy_timeline: list) -> int:
+    """
+    Calculates a comprehensive selection probability score (0-100).
+    Factors:
+    - Base Scores (70%): Confidence and Technical Depth from AI.
+    - Event Momentum (20%): Impact of positive vs negative technical/communication events.
+    - Acoustic Energy (10%): Vocal stability and projection based on energy timeline.
+    """
+    try:
+        # 1. Base AI Score (Scaled to 70 points max)
+        # Weights: Tech Depth (4.0x), Confidence (3.0x) - Assuming 0-10 inputs
+        base_score = (float(tech_depth) * 4.0) + (float(confidence) * 3.0)
+        
+        # 2. Event Impact (20 points max swing)
+        pos_count = len([e for e in events if e.get("type") == "positive"])
+        neg_count = len([e for e in events if e.get("type") == "negative"])
+        
+        # +6.0 per positive, -5.5 per negative (less harsh than previous -8.0)
+        event_delta = (pos_count * 6.0) - (neg_count * 5.5)
+        
+        # 3. Energy Factor (10 points max)
+        energy_bonus = 0
+        if energy_timeline:
+            avg_energy = sum([p.get("score", 0) for p in energy_timeline]) / len(energy_timeline)
+            # High energy (>0.45) adds bonus, Very low energy (<0.15) penalizes
+            if avg_energy > 0.45:
+                energy_bonus = 5
+            elif avg_energy < 0.15:
+                energy_bonus = -10
+            
+            # Volatility check 
+            scores = [p.get("score", 0) for p in energy_timeline]
+            if len(scores) > 1:
+                volatility = max(scores) - min(scores)
+                if volatility > 0.8: # Extreme volatility (erratic)
+                    energy_bonus -= 5
+        
+        final_prob = base_score + event_delta + energy_bonus
+        
+        # Clamp between 2% and 98% (never 0 or 100 for a more "human" AI feel)
+        return int(min(98, max(2, final_prob)))
+        
+    except Exception as e:
+        print(f"DEBUG: Error calculating success probability: {e}")
+        return 5 # Safe fallback

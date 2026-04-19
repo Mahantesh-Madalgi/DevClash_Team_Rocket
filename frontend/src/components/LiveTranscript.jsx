@@ -1,150 +1,122 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useMemo } from "react";
 import { Mic, User } from "lucide-react";
 
-const SPEAKER_COLORS = [
-  { bg: "rgba(170,59,255,0.1)", border: "#aa3bff", label: "#aa3bff", chip: "rgba(170,59,255,0.15)" },
-  { bg: "rgba(59,130,246,0.1)", border: "#3b82f6", label: "#3b82f6", chip: "rgba(59,130,246,0.15)" },
-  { bg: "rgba(16,185,129,0.1)", border: "#10b981", label: "#10b981", chip: "rgba(16,185,129,0.15)" },
-  { bg: "rgba(251,146,60,0.1)",  border: "#f97316", label: "#f97316", chip: "rgba(251,146,60,0.15)"  },
-];
-
-function getColor(speakerId) {
-  return SPEAKER_COLORS[speakerId % SPEAKER_COLORS.length];
-}
-
-function getLabel(speakerId, totalSpeakers) {
-  if (totalSpeakers === 2) return speakerId === 0 ? "Interviewer" : "Candidate";
-  return `Speaker ${speakerId + 1}`;
-}
-
-export default function LiveTranscript({ transcript, currentTime }) {
-  const activeRef = useRef(null);
+export default function LiveTranscript({ transcript, exchanges, currentTime, highlightedTimestamp }) {
   const containerRef = useRef(null);
+  const blockRefs = useRef({});
 
-  // --- Primary: use Deepgram utterances (pre-grouped by speaker) ---
-  const utterances = transcript?.results?.utterances || [];
-
-  // --- Fallback: manually group words by speaker if utterances is empty ---
-  const fallbackWords = transcript?.results?.channels?.[0]?.alternatives?.[0]?.words || [];
-  const segments = [];
-
-  if (utterances.length > 0) {
-    for (const u of utterances) {
-      segments.push({
-        speaker: u.speaker ?? 0,
-        start:   u.start,
-        end:     u.end,
-        text:    u.transcript,
-      });
+  // Use pre-grouped exchanges from backend if available, fallback to basic segments
+  const displayBlocks = useMemo(() => {
+    if (exchanges && exchanges.length > 0) {
+      return exchanges.map((ex, i) => ({
+        id: `exch-${i}`,
+        timestamp: ex.timestamp,
+        interviewer: ex.interviewer,
+        candidate: ex.candidate
+      }));
     }
-  } else {
-    // Manual grouping fallback
-    let chunk = [];
-    for (let i = 0; i < fallbackWords.length; i++) {
-      const w = fallbackWords[i];
-      const prevSpeaker = chunk.length > 0 ? chunk[0].speaker : undefined;
-      const speakerChanged = prevSpeaker !== undefined && w.speaker !== prevSpeaker;
-      const sentenceEnd = chunk.length > 0 && /[.?!]$/.test(chunk[chunk.length - 1].word);
-      const tooLong = chunk.length >= 15;
+    
+    // Fallback logic using raw utterances if exchanges aren't pre-processed
+    const utterances = transcript?.results?.utterances || [];
+    return utterances.map((u, i) => ({
+      id: `u-${i}`,
+      timestamp: u.start,
+      speaker: u.speaker,
+      text: u.transcript
+    }));
+  }, [exchanges, transcript]);
 
-      if ((speakerChanged || sentenceEnd || tooLong) && chunk.length > 0) {
-        segments.push({ speaker: chunk[0].speaker ?? 0, start: chunk[0].start, end: chunk[chunk.length - 1].end, text: chunk.map(w => w.word).join(" ") });
-        chunk = [];
-      }
-      chunk.push(w);
-    }
-    if (chunk.length > 0) {
-      segments.push({ speaker: chunk[0].speaker ?? 0, start: chunk[0].start, end: chunk[chunk.length - 1].end, text: chunk.map(w => w.word).join(" ") });
-    }
-  }
-
-  const uniqueSpeakers = [...new Set(segments.map(s => s.speaker))].sort();
-  const totalSpeakers  = uniqueSpeakers.length;
-
-  // Active segment by timestamp
-  const activeIndex = segments.findIndex(s => currentTime >= s.start && currentTime <= s.end);
-
-  // Auto-scroll to active
+  // Handle Scroll-to-Event (when highlightedTimestamp changes)
   useEffect(() => {
-    if (activeRef.current) {
-      activeRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (highlightedTimestamp !== null) {
+      // Find the block closest to the timestamp
+      const targetBlock = displayBlocks.reduce((prev, curr) => {
+        return (Math.abs(curr.timestamp - highlightedTimestamp) < Math.abs(prev.timestamp - highlightedTimestamp) ? curr : prev);
+      });
+
+      if (targetBlock && blockRefs.current[targetBlock.id]) {
+        blockRefs.current[targetBlock.id].scrollIntoView({ behavior: "smooth", block: "center" });
+      }
     }
-  }, [activeIndex]);
+  }, [highlightedTimestamp, displayBlocks]);
+
+  // Handle Auto-scroll for Live Playback
+  useEffect(() => {
+    const activeBlock = displayBlocks.find(b => {
+      // For exchanges, we approximate the end as the start of the next block or +10s
+      const nextBlock = displayBlocks[displayBlocks.indexOf(b) + 1];
+      const end = nextBlock ? nextBlock.timestamp : b.timestamp + 10;
+      return currentTime >= b.timestamp && currentTime <= end;
+    });
+
+    if (activeBlock && blockRefs.current[activeBlock.id]) {
+      blockRefs.current[activeBlock.id].scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [currentTime, displayBlocks]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-      {/* Header row */}
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "0.75rem" }}>
-        <Mic size={18} color="var(--accent)" />
-        <h4 style={{ margin: 0, fontWeight: 700, color: "var(--text-h)" }}>Live Transcription Feed</h4>
-        {totalSpeakers > 0 && (
-          <span style={{ marginLeft: "auto", fontSize: "0.78rem", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "99px", padding: "2px 10px" }}>
-            {totalSpeakers} Speaker{totalSpeakers !== 1 ? "s" : ""} Detected
-          </span>
-        )}
+    <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <Mic size={18} color="var(--brand-500)" />
+        <h4 style={{ margin: 0, fontWeight: 700, color: "var(--text-h)" }}>Mentorship Exchange Feed</h4>
       </div>
 
-      {/* Speaker legend */}
-      {totalSpeakers > 1 && (
-        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
-          {uniqueSpeakers.map(id => {
-            const c = getColor(id);
-            return (
-              <div key={id} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "3px 10px", borderRadius: "99px", background: c.chip, border: `1px solid ${c.border}`, fontSize: "0.78rem", fontWeight: 700, color: c.label }}>
-                {id === 0 ? <Mic size={11} /> : <User size={11} />}
-                {getLabel(id, totalSpeakers)}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Scrollable feed */}
-      <div ref={containerRef} style={{ height: "320px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "4px", paddingRight: "4px" }}>
-        {segments.length === 0 ? (
-          <p style={{ color: "#999", fontStyle: "italic", textAlign: "center", marginTop: "2rem" }}>
-            No transcript available. Upload an interview video to begin.
+      <div ref={containerRef} style={{ height: "400px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "1.5rem", paddingRight: "10px" }}>
+        {displayBlocks.length === 0 ? (
+          <p style={{ color: "#94a3b8", textAlign: "center", marginTop: "4rem", fontStyle: "italic" }}>
+            Upload an interview to see the mentor-guided transcript.
           </p>
         ) : (
-          segments.map((s, idx) => {
-            const c        = getColor(s.speaker);
-            const isActive = idx === activeIndex;
-            const label    = getLabel(s.speaker, totalSpeakers);
-            const ts       = `${Math.floor(s.start / 60)}:${Math.floor(s.start % 60).toString().padStart(2, "0")}`;
-            const showChip = idx === 0 || segments[idx - 1].speaker !== s.speaker;
+          displayBlocks.map((block) => (
+            <div 
+              key={block.id} 
+              ref={el => blockRefs.current[block.id] = el}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.75rem",
+                padding: "1rem",
+                borderRadius: "16px",
+                background: Math.abs(block.timestamp - currentTime) < 3 ? "rgba(14, 165, 233, 0.05)" : "transparent",
+                border: Math.abs(block.timestamp - highlightedTimestamp) < 0.1 ? "1.5px solid var(--accent)" : "1.5px solid transparent",
+                transition: "all 0.3s ease"
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                <span style={{ fontSize: "0.7rem", fontWeight: 800, color: "var(--text)", opacity: 0.4 }}>
+                  T+ {Math.floor(block.timestamp / 60)}:{(block.timestamp % 60).toFixed(0).padStart(2, '0')}
+                </span>
+              </div>
 
-            return (
-              <div key={idx} ref={isActive ? activeRef : null} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                {/* Speaker label — only when speaker changes */}
-                {showChip && (
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: idx > 0 ? "0.6rem" : 0 }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "0.72rem", fontWeight: 800, color: c.label, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                      {s.speaker === 0 ? <Mic size={11} /> : <User size={11} />}
-                      {label}
-                    </span>
-                    <span style={{ fontSize: "0.68rem", color: "var(--text)", opacity: 0.55 }}>{ts}</span>
-                    <div style={{ flex: 1, height: "1px", background: c.border, opacity: 0.2 }} />
-                  </div>
-                )}
-
-                {/* Utterance bubble */}
-                <div style={{
-                  padding: "8px 12px",
-                  borderRadius: "10px",
-                  borderLeft: `3px solid ${isActive ? c.border : "transparent"}`,
-                  background: isActive ? c.bg : "transparent",
-                  transition: "all 0.25s ease",
-                  fontSize: isActive ? "0.97rem" : "0.88rem",
-                  fontWeight: isActive ? 600 : 400,
-                  color: isActive ? "var(--text-h)" : "var(--text)",
-                  opacity: isActive ? 1 : 0.5,
-                  lineHeight: 1.5,
-                }}>
-                  {s.text}
+              {/* Interviewer Question */}
+              <div style={{ display: "flex", gap: "10px" }}>
+                <div style={{ width: "24px", height: "24px", borderRadius: "50%", background: "var(--brand-100)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Mic size={12} color="var(--brand-500)" />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.65rem", fontWeight: 900, textTransform: "uppercase", color: "var(--brand-500)", marginBottom: "2px" }}>Interviewer</label>
+                  <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--text-h)", lineHeight: 1.5 }}>
+                    {block.interviewer || block.text}
+                  </p>
                 </div>
               </div>
-            );
-          })
+
+              {/* Candidate Answer (Only if it's an exchange block) */}
+              {block.candidate && (
+                <div style={{ display: "flex", gap: "10px", paddingLeft: "34px", borderLeft: "2px solid var(--slate-100)" }}>
+                  <div style={{ width: "24px", height: "24px", borderRadius: "50%", background: "var(--accent-bg)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <User size={12} color="var(--accent)" />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.65rem", fontWeight: 900, textTransform: "uppercase", color: "var(--accent)", marginBottom: "2px" }}>Candidate</label>
+                    <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--text)", lineHeight: 1.5 }}>
+                      {block.candidate}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))
         )}
       </div>
     </div>

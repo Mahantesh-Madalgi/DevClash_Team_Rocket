@@ -15,6 +15,49 @@ from fastapi.middleware.cors import CORSMiddleware
 # Initialize FastAPI app
 app = FastAPI()
 
+def identify_interviewer(utterances):
+    """
+    Analyzes the first few utterances to find the person asking questions.
+    """
+    for u in utterances[:15]:
+        text = u.get("transcript", "").lower()
+        if "?" in text or any(k in text for k in ["tell me", "how", "what", "can you", "explain", "why"]):
+            return u.get("speaker", 0)
+    return 0
+
+def group_exchanges(utterances, interviewer_id):
+    """
+    Pairs Interviewer Questions with Candidate Answers.
+    """
+    exchanges = []
+    if not utterances: return []
+    
+    current_exchange = {"interviewer": "", "candidate": "", "timestamp": 0.0}
+    last_speaker = None
+    
+    for u in utterances:
+        speaker = u.get("speaker", 0)
+        text = u.get("transcript", "")
+        
+        if speaker == interviewer_id:
+            # If we were previously collecting a candidate's answer, push the old exchange
+            if last_speaker is not None and last_speaker != interviewer_id:
+                exchanges.append(current_exchange)
+                current_exchange = {"interviewer": "", "candidate": "", "timestamp": u.get("start", 0.0)}
+            
+            current_exchange["interviewer"] = (current_exchange["interviewer"] + " " + text).strip()
+            if not current_exchange["timestamp"]:
+                current_exchange["timestamp"] = u.get("start", 0.0)
+        else:
+            current_exchange["candidate"] = (current_exchange["candidate"] + " " + text).strip()
+            
+        last_speaker = speaker
+        
+    if current_exchange["interviewer"] or current_exchange["candidate"]:
+        exchanges.append(current_exchange)
+        
+    return exchanges
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -110,11 +153,25 @@ async def upload_video(
     # Analyze filler words
     filler_word_count = 0
     try:
+        from analyzer import count_silent_gaps, count_filler_words, analyze_energy_timeline, extract_confidence_events, calculate_success_probability
         filler_word_count = count_filler_words(response_dict)
     except Exception as e:
         print(f"DEBUG: Analyzer filler error: {e}")
         
-    # Build Transcripts
+    # Analyze Time-Series Energy & Confidence Gaps (Moved up to inform probability)
+    energy_timeline = []
+    confidence_events = []
+    try:
+        energy_timeline = analyze_energy_timeline(audio_path)
+        confidence_events = extract_confidence_events(energy_timeline)
+    except Exception as e:
+        print(f"DEBUG: Timeline error: {e}")
+        
+    # Build Transcripts & Exchanges
+    utterances = response_dict.get("results", {}).get("utterances", [])
+    interviewer_id = identify_interviewer(utterances)
+    exchanges = group_exchanges(utterances, interviewer_id)
+    
     channels = response_dict.get("results", {}).get("channels", [])
     transcript_text = channels[0].get("alternatives", [{}])[0].get("transcript", "") if channels else ""
     
@@ -158,26 +215,48 @@ async def upload_video(
         
         # Gemini Deep JD Comparison
         comparison_report = gemini_comparison_report(transcript_text, job_description)
-        tech_evts = comparison_report.get("technical_events", [])
-        technical_events = tech_evts
+        technical_events = comparison_report.get("technical_events", [])
         
-        # Fetch raw scores with robust fallbacks
-        tech_score = comparison_report.get("scorecard", {}).get("technical_depth", 0)
-        comm_score = comparison_report.get("scorecard", {}).get("communication_clarity", 0)
-        conf_score = comparison_report.get("scorecard", {}).get("confidence", comm_score) # fallback to comm if conf is completely missing
+        # Merge Events early
+        unified_events = confidence_events + language_events + technical_events
         
-        # Calculate dynamic probability
-        pos_events = len([e for e in tech_evts if e.get("type") == "positive"])
-        base_prob = (tech_score * 4.5) + (conf_score * 3.5) + (pos_events * 2.0)
-        final_prob = min(98, max(5, int(base_prob))) # Bound between 5% and 98%
+        # --- METRIC MAPPING: PRIORITIZE GROQ RATINGS FOR UI ---
+        # Resilient extraction to handle varying LLM response formats
+        print("\n--- RAW GROQ EVALUATION ---")
+        print(llm_response)
         
-        # Merge comparison report into llm_feedback for Supabase storage
+        def extract_score(data, key):
+            # Check in ratings nested object
+            nested = data.get("ratings", {})
+            if key in nested: return nested[key]
+            # Check in top level
+            if key in data: return data[key]
+            # Fallback for tech depth variation
+            if key == "technical_depth":
+                for alt in ["tech_depth", "technical"]:
+                    if alt in nested: return nested[alt]
+                    if alt in data: return data[alt]
+            return 0
+
+        groq_tech = extract_score(llm_response, "technical_depth")
+        groq_conf = extract_score(llm_response, "confidence")
+        groq_comm = extract_score(llm_response, "communication")
+        
+        # Calculate dynamic probability using the new advanced algorithm
+        final_prob = calculate_success_probability(
+            confidence=groq_conf,
+            tech_depth=groq_tech,
+            events=unified_events,
+            energy_timeline=energy_timeline
+        )
+        
+        # Update llm_feedback for UI and Supabase storage
         llm_feedback["is_jd_analysis"] = bool(job_description and job_description.strip())
         llm_feedback["match_percentage"] = comparison_report.get("match_percentage", 0)
         llm_feedback["scorecard"] = {
-            "technical_depth": tech_score,
-            "communication_clarity": comm_score,
-            "confidence": conf_score
+            "technical_depth": groq_tech,       # Mapping to Groq as requested
+            "communication_clarity": groq_comm, # Mapping to Groq as requested
+            "confidence": groq_conf           # Mapping to Groq as requested
         }
         llm_feedback["summary"] = comparison_report.get("summary", "")
         llm_feedback["selection_probability"] = final_prob
@@ -187,16 +266,6 @@ async def upload_video(
         traceback.print_exc()
         print(f"DEBUG: Dual-LLM Orchestration error: {e}")
         
-    # Analyze Time-Series Energy
-    energy_timeline = []
-    confidence_events = []
-    try:
-        from analyzer import analyze_energy_timeline, extract_confidence_events
-        energy_timeline = analyze_energy_timeline(audio_path)
-        confidence_events = extract_confidence_events(energy_timeline)
-    except Exception as e:
-        print(f"DEBUG: Timeline error: {e}")
-
     finally:
         # Clean up audio file
         try:
@@ -212,6 +281,7 @@ async def upload_video(
             "id": interview_id,
             "video_name": video_name,
             "transcript_json": transcript_json,
+            "exchanges_json": exchanges,
             "gap_count": gap_count,
             "filler_word_count": filler_word_count,
             "llm_feedback_json": llm_feedback,
@@ -220,7 +290,6 @@ async def upload_video(
         }).execute()
         
         # Merge Events & Store Foreign Keys
-        unified_events = confidence_events + language_events + technical_events
         if unified_events:
             push_events = []
             for ev in unified_events:
@@ -230,7 +299,9 @@ async def upload_video(
                     "type": ev.get("type", "negative"),
                     "category": ev.get("category", "language"),
                     "description": ev.get("description", ""),
-                    "correction": ev.get("correction", None)
+                    "diagnosis": ev.get("diagnosis", ""),
+                    "gold_standard": ev.get("gold_standard", ""),
+                    "growth_plan": ev.get("growth_plan", "")
                 })
             supabase.table("analysis_events").insert(push_events).execute()
             

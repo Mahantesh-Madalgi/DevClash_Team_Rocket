@@ -23,19 +23,35 @@ def evaluate_transcript(deepgram_json: dict) -> dict:
         client = Groq(api_key=GROQ_API_KEY)
         
         prompt = f"""
-You are a Lead Technical Recruiter. Analyze the following interview transcript for professional communication and core depth.
+You are a Senior Technical Mentor & Interviewer. Analyze the following interview transcript for professional communication and core depth.
 
 TASKS:
-1. Rate "communication", "technical_depth", and "confidence" on a strict 1-10 scale.
-2. Provide two "strengths": specifically mention concepts or terminology used by the candidate.
-3. Provide one "improvement_plan": this MUST be a single plain-text string (NOT an object or array). Describe one actionable technical or soft-skill area they should focus on.
+1. Rate "communication", "technical_depth", and "confidence" on a balanced and growth-oriented 1-10 scale.
+2. Provide two "strengths": recognize valid technical logic and specific professional wins.
+3. Provide one "improvement_plan": this MUST be a single plain-text string. Focus on actionable growth.
 
-CRITICAL GUIDELINES:
-- Be objective and specific.
-- The "improvement_plan" field MUST be a raw string. 
-- Avoid generic filler suggestions like "Be more confident". 
-- Instead, use "Improve clarity on [Specific Concept]" or "Reduced reliance on filler words during [Specific Explanation]".
-- Respond ONLY with a raw JSON object.
+OUTPUT FORMAT:
+Respond ONLY with a raw JSON object matching this schema:
+{{
+  "ratings": {{
+    "communication": number,
+    "technical_depth": number,
+    "confidence": number
+  }},
+  "strengths": [string, string],
+  "improvement_plan": string
+}}
+
+EXAMPLE:
+{{
+  "ratings": {{
+    "communication": 8,
+    "technical_depth": 7,
+    "confidence": 9
+  }},
+  "strengths": ["Excellent handling of React state", "Strong understanding of SQL joins"],
+  "improvement_plan": "Focus on reducing filler words during complex technical explanations."
+}}
 
 TRANSCRIPT:
 {transcript_text}

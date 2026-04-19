@@ -51,14 +51,13 @@ def gemini_comparison_report(transcript_text: str, job_description: str) -> dict
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
     genai.configure(api_key=GEMINI_API_KEY)
     
-    # We use Flash because it handles heavy technical context windows elegantly while remaining snappy
     model = genai.GenerativeModel('gemini-1.5-flash')
     
-    jd_context = job_description if job_description and job_description.strip() else "NO JOB DESCRIPTION PROVIDED. Perform a 'General Professional Conduct Evaluation' against standard interview benchmarks for clarity, technical soundness, and professional poise."
+    jd_context = job_description if job_description and job_description.strip() else "NO JOB DESCRIPTION PROVIDED. Perform a 'General Professional Conduct Evaluation'."
     
     prompt = f"""
-You are an Senior Technical Interviewer & Auditor. 
-Analyze the candidate's transcript against the Job Description or General Professional Standards with extreme precision.
+You are a Senior Technical Architect & Real Mentor. 
+Analyze the candidate's transcript with Empathetic Technical Rigor. 
 
 JOB DESCRIPTION CONTEXT:
 {jd_context}
@@ -67,25 +66,15 @@ TRANSCRIPT:
 {transcript_text}
 
 TASK:
-1. "match_percentage": 
-   - If JD is provided: A strict percentage calculation based on alignment with specific JD requirements.
-   - If NO JD is provided: A "General Interview Readiness" score based on articulation, logical flow, and professional conduct.
-2. "scorecard": 0-10 ratings for:
-   - "technical_depth": Ability to explain 'how' and 'why'.
-   - "communication_clarity": Conciseness and lack of ambiguity.
-   - "requirement_relevance": (If NO JD, rate this as "Professionalism/Poise").
-   - "confidence": Rated from hesitation, filler words, and assertion.
-3. "technical_events": Extract critical moments where the candidate either EXCELLED (positive) or showed a GAP (negative) in professionalism or technical knowledge.
-   - For POSITIVE events: Provide a "description".
-   - For NEGATIVE events: Provide an "issue" (quote the exact full statement the candidate said poorly/wrongly) and a "correction" (provide the completely rewritten, ideal way they should have said it).
-4. "selection_probability": A number 0-100 representing the probability this candidate would be selected for the next round based on their performance.
-5. "summary": A 3-sentence high-signal summary.
-   - If NO JD: Focus on general strengths and the single biggest communication or technical risk.
-
-CRITICAL CONSTRAINTS:
-- Do NOT use generic praise. Use evidence. 
-- NO sentiment analysis or emotional tone checking.
-- Output MUST be a raw, parsable JSON object.
+1. "match_percentage": A balanced alignment score rewarding structural logic.
+2. "scorecard": 0-10 ratings for Technical Depth, Communication, Relevance, and Confidence.
+3. "technical_events": For every GROWTH AREA (negative event), provide a structured Mentorship Insight:
+   - "diagnosis": What exactly went wrong (e.g., 'Switched to non-English language', 'Vague on React Hooks dependency array').
+   - "gold_standard": The optimized, English-only architectural response they SHOULD have given.
+   - "growth_plan": A practical mentor tip (e.g., 'Practice explaining state cycles in English', 'Study the difference between useEffect and useMemo').
+   - "timestamp": The exact second this happened.
+4. "selection_probability": 0-100 realistic readiness score.
+5. "summary": 3-sentence mentor summary highlighting the path to excellence.
 
 JSON SCHEMA:
 {{
@@ -101,10 +90,11 @@ JSON SCHEMA:
         {{
             "timestamp": number,
             "type": "positive" | "negative",
-            "category": "technical",
-            "description": string,
-            "issue": string,
-            "correction": string
+            "category": "technical" | "language" | "confidence",
+            "description": string, (Use for POSITIVE events)
+            "diagnosis": string, (MANDATORY for NEGATIVE events)
+            "gold_standard": string, (MANDATORY for NEGATIVE events)
+            "growth_plan": string (MANDATORY for NEGATIVE events)
         }}
     ],
     "summary": string
@@ -122,5 +112,13 @@ JSON SCHEMA:
         print(f"DEBUG: Gemini evaluation error: {e}")
         return {
             "match_percentage": 0,
-            "technical_events": []
+            "selection_probability": 0,
+            "scorecard": {
+                "technical_depth": 0,
+                "communication_clarity": 0,
+                "requirement_relevance": 0,
+                "confidence": 0
+            },
+            "technical_events": [],
+            "summary": "AI evaluation failed. Please check backend logs."
         }
